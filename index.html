@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Sistema de Inventário Inteligente para contagem de estoque com código de barras">
+    <title>Inventário Inteligente de Estoque</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app" class="app">
+
+        <!-- ========== TELA DE LOGIN ========== -->
+        <section id="login-screen" class="screen screen--active">
+            <main class="login-main">
+                <article class="login-card">
+                    <header class="login-header">
+                        <h1>📊 Inventário Inteligente</h1>
+                        <p>Sistema de Contagem de Estoque</p>
+                    </header>
+
+                    <form id="login-form" class="login-form" novalidate>
+                        <div class="form-group">
+                            <label for="collaborator-name">Nome do Colaborador</label>
+                            <input
+                                type="text"
+                                id="collaborator-name"
+                                class="form-input"
+                                placeholder="Digite seu nome completo"
+                                required
+                                autofocus
+                                aria-label="Nome completo do colaborador"
+                                minlength="3"
+                                maxlength="50"
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="user-role">Tipo de Acesso</label>
+                            <select id="user-role" class="form-select" required aria-label="Selecione seu perfil de acesso">
+                                <option value="">-- Selecione --</option>
+                                <option value="operator">Operador (Bipagem)</option>
+                                <option value="supervisor">Supervisor (Dashboard)</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn btn--primary btn--large">
+                            Entrar no Sistema
+                        </button>
+                    </form>
+                </article>
+            </main>
+        </section>
+
+        <!-- ========== TELA DO OPERADOR ========== -->
+        <section id="operator-screen" class="screen">
+            <header class="app-header">
+                <div class="header-content">
+                    <h1>📱 Operador de Inventário</h1>
+                    <div class="user-info">
+                        <span id="operator-name" class="user-name" aria-label="Nome do operador"></span>
+                        <button id="logout-operator" class="btn btn--secondary btn--small" aria-label="Fazer logout">
+                            🚪 Sair
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="operator-layout">
+                <!-- Sidebar -->
+                <aside class="operator-sidebar" aria-label="Informações da sessão">
+                    <section class="info-card">
+                        <h2>📍 Localização</h2>
+                        <select id="location-select" class="form-select" aria-label="Escolha a localização do estoque">
+                            <option value="main">Estoque Principal</option>
+                            <option value="warehouse-a">Almoxarifado A</option>
+                            <option value="warehouse-b">Almoxarifado B</option>
+                        </select>
+                    </section>
+
+                    <section class="info-card">
+                        <h2>📊 Sessão</h2>
+                        <div class="session-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Itens Contados:</span>
+                                <span id="total-items" class="stat-value" aria-live="polite">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Produtos Únicos:</span>
+                                <span id="unique-products" class="stat-value" aria-live="polite">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Tempo:</span>
+                                <span id="session-time" class="stat-value" aria-live="polite">00:00:00</span>
+                            </div>
+                        </div>
+                    </section>
+                </aside>
+
+                <!-- Conteúdo principal -->
+                <main class="operator-main">
+                    <!-- Seção de Bipagem -->
+                    <section class="barcode-section" aria-label="Área de leitura de código de barras">
+                        <div class="barcode-input-wrapper">
+                            <label for="barcode-input" class="barcode-label">
+                                🔍 Bipe ou digite o código do produto
+                            </label>
+                            <input
+                                type="text"
+                                id="barcode-input"
+                                class="barcode-input"
+                                placeholder="Escaneie o código de barras..."
+                                autofocus
+                                aria-label="Campo para leitura de código de barras"
+                                spellcheck="false"
+                                autocomplete="off"
+                            >
+                        </div>
+
+                        <!-- Informações do Produto -->
+                        <article id="product-info" class="product-info hidden" aria-live="polite" aria-label="Informações do produto escaneado">
+                            <div class="product-card">
+                                <h3 id="product-name" class="product-name"></h3>
+                                <dl class="product-details">
+                                    <dt>SKU:</dt>
+                                    <dd id="product-sku"></dd>
+
+                                    <dt>EAN:</dt>
+                                    <dd id="product-ean"></dd>
+
+                                    <dt>Estoque do Sistema:</dt>
+                                    <dd id="product-stock"></dd>
+
+                                    <dt>Localização:</dt>
+                                    <dd id="product-location"></dd>
+
+                                    <dt>Categoria:</dt>
+                                    <dd id="product-category"></dd>
+
+                                    <dt>✓ Produto Registrado:</dt>
+                                    <dd id="product-counted" class="highlight"></dd>
+                                </dl>
+                            </div>
+                        </article>
+
+                        <!-- Mensagem de Erro -->
+                        <div id="error-message" class="error-message hidden" role="alert" aria-live="assertive"></div>
+                    </section>
+
+                    <!-- Histórico de Bipagens -->
+                    <section class="history-section" aria-label="Histórico de bipagens da sessão">
+                        <h2>📋 Histórico de Bipagens</h2>
+                        <div class="section-controls">
+                            <button id="clear-history" class="btn btn--secondary btn--small" aria-label="Limpar histórico de bipagens">
+                                🗑️ Limpar Histórico
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table id="history-table" class="history-table">
+                                <caption>Lista de produtos escaneados nesta sessão</caption>
+                                <thead>
+                                    <tr>
+                                        <th>Hora</th>
+                                        <th>Produto</th>
+                                        <th>SKU</th>
+                                        <th>EAN</th>
+                                        <th>Localização</th>
+                                        <th>Ação</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="history-body">
+                                </tbody>
+                            </table>
+                            <div id="empty-history" class="empty-state">
+                                Nenhuma bipagem registrada ainda. Comece escaneando produtos!
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Ações do Operador -->
+                    <aside class="operator-actions">
+                        <button id="finish-inventory" class="btn btn--success btn--large" aria-label="Finalizar o inventário atual">
+                            ✓ Finalizar Inventário
+                        </button>
+                    </aside>
+                </main>
+            </div>
+        </section>
+
+        <!-- ========== TELA DO SUPERVISOR ========== -->
+        <section id="supervisor-screen" class="screen">
+            <header class="app-header">
+                <div class="header-content">
+                    <h1>📈 Supervisor - Dashboard</h1>
+                    <div class="user-info">
+                        <span id="supervisor-name" class="user-name" aria-label="Nome do supervisor"></span>
+                        <button id="logout-supervisor" class="btn btn--secondary btn--small" aria-label="Fazer logout">
+                            🚪 Sair
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <nav class="supervisor-nav" aria-label="Abas de navegação do supervisor">
+                <button class="nav-btn nav-btn--active" data-tab="dashboard" aria-selected="true">📊 Dashboard</button>
+                <button class="nav-btn" data-tab="history" aria-selected="false">📋 Histórico</button>
+                <button class="nav-btn" data-tab="divergences" aria-selected="false">⚠️ Divergências</button>
+                <button class="nav-btn" data-tab="not-inventoried" aria-selected="false">📦 Não Inventariados</button>
+                <button class="nav-btn" data-tab="import" aria-selected="false">📥 Importar</button>
+            </nav>
+
+            <div class="supervisor-container">
+                <!-- TAB: Dashboard -->
+                <section id="tab-dashboard" class="tab-content tab-content--active" aria-label="Dashboard com KPIs">
+                    <div class="dashboard-grid">
+                        <section class="kpi-section">
+                            <h2>KPIs Operacionais</h2>
+                            <div class="kpi-grid">
+                                <article class="kpi-card">
+                                    <div class="kpi-icon">📊</div>
+                                    <h3>Total de Bipagens</h3>
+                                    <p id="kpi-total-scans" class="kpi-value" aria-live="polite">0</p>
+                                </article>
+                                <article class="kpi-card">
+                                    <div class="kpi-icon">📦</div>
+                                    <h3>Produtos Contados</h3>
+                                    <p id="kpi-total-products" class="kpi-value" aria-live="polite">0</p>
+                                </article>
+                                <article class="kpi-card">
+                                    <div class="kpi-icon">👥</div>
+                                    <h3>Colaboradores</h3>
+                                    <p id="kpi-collaborators" class="kpi-value" aria-live="polite">0</p>
+                                </article>
+                                <article class="kpi-card">
+                                    <div class="kpi-icon">⏱️</div>
+                                    <h3>Tempo Médio (seg)</h3>
+                                    <p id="kpi-avg-time" class="kpi-value" aria-live="polite">0</p>
+                                </article>
+                            </div>
+                        </section>
+
+                        <section class="ranking-section">
+                            <h2>👥 Ranking de Colaboradores</h2>
+                            <div class="table-responsive">
+                                <table id="ranking-table" class="ranking-table">
+                                    <caption>Ranking de produtividade dos operadores</caption>
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Colaborador</th>
+                                            <th>Bipagens</th>
+                                            <th>Produtos Únicos</th>
+                                            <th>Produtividade</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ranking-body">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+                </section>
+
+                <!-- TAB: Histórico -->
+                <section id="tab-history" class="tab-content" aria-label="Histórico geral de bipagens">
+                    <section class="filter-section">
+                        <h2>📋 Histórico Geral</h2>
+                        <div class="filter-controls">
+                            <div class="form-group">
+                                <label for="filter-date">Data:</label>
+                                <input type="date" id="filter-date" class="form-input">
+                            </div>
+                            <div class="form-group">
+                                <label for="filter-collaborator">Colaborador:</label>
+                                <select id="filter-collaborator" class="form-select">
+                                    <option value="">Todos os Colaboradores</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="filter-product">Produto:</label>
+                                <input type="text" id="filter-product" class="form-input" placeholder="Filtrar por produto...">
+                            </div>
+                            <div class="form-actions">
+                                <button id="apply-filters" class="btn btn--primary btn--small" aria-label="Aplicar filtros ao histórico">
+                                    🔍 Aplicar Filtros
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div class="table-responsive">
+                        <table id="all-history-table" class="history-table">
+                            <caption>Histórico completo de todas as bipagens</caption>
+                            <thead>
+                                <tr>
+                                    <th>Data/Hora</th>
+                                    <th>Colaborador</th>
+                                    <th>Produto</th>
+                                    <th>SKU</th>
+                                    <th>EAN</th>
+                                    <th>Localização</th>
+                                </tr>
+                            </thead>
+                            <tbody id="all-history-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- TAB: Divergências -->
+                <section id="tab-divergences" class="tab-content" aria-label="Divergências entre sistema e contagem">
+                    <section class="divergences-section">
+                        <h2>⚠️ Divergências entre Sistema e Contagem</h2>
+                        <div class="section-controls">
+                            <button id="filter-discrepancies" class="btn btn--primary btn--small" aria-label="Mostrar apenas produtos com divergências">
+                                🔍 Mostrar Apenas Divergências
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table id="divergences-table" class="divergences-table">
+                                <caption>Comparação entre quantidade no sistema e quantidade contada</caption>
+                                <thead>
+                                    <tr>
+                                        <th>SKU</th>
+                                        <th>Produto</th>
+                                        <th>Sistema</th>
+                                        <th>Contado</th>
+                                        <th>Diferença</th>
+                                        <th>Tipo</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="divergences-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </section>
+
+                <!-- TAB: Não Inventariados -->
+                <section id="tab-not-inventoried" class="tab-content" aria-label="Produtos não inventariados">
+                    <section class="not-inventoried-section">
+                        <h2>📦 Produtos Não Inventariados</h2>
+                        <p class="section-info">Produtos presentes na planilha que não receberam nenhuma bipagem.</p>
+                        <div class="table-responsive">
+                            <table id="not-inventoried-table" class="inventory-table">
+                                <caption>Lista de produtos sem bipagens registradas</caption>
+                                <thead>
+                                    <tr>
+                                        <th>SKU</th>
+                                        <th>EAN</th>
+                                        <th>Produto</th>
+                                        <th>Estoque</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="not-inventoried-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </section>
+
+                <!-- TAB: Importar Excel -->
+                <section id="tab-import" class="tab-content" aria-label="Importar e exportar dados">
+                    <section class="import-section">
+                        <h2>📥 Importar Base de Produtos</h2>
+
+                        <div class="import-area">
+                            <input
+                                type="file"
+                                id="excel-file-input"
+                                accept=".xlsx,.xls"
+                                class="file-input"
+                                aria-label="Selecione arquivo Excel para importar"
+                            >
+                            <label for="excel-file-input" class="file-label">
+                                <div class="file-icon">📄</div>
+                                <p><strong>Clique aqui ou arraste um arquivo Excel</strong></p>
+                                <span>Suporta .xlsx e .xls</span>
+                            </label>
+                        </div>
+
+                        <div id="import-status" class="hidden" aria-live="polite" aria-label="Status da importação">
+                            <div id="import-result" class="import-result"></div>
+                            <div id="import-preview" class="import-preview hidden">
+                                <h3>📊 Prévia dos Produtos Importados</h3>
+                                <div class="table-responsive">
+                                    <table id="import-preview-table" class="preview-table">
+                                        <caption>Prévia dos dados a serem importados</caption>
+                                        <thead>
+                                            <tr>
+                                                <th>EAN</th>
+                                                <th>SKU</th>
+                                                <th>Produto</th>
+                                                <th>Estoque</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="import-preview-body">
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="import-actions">
+                                    <button id="confirm-import" class="btn btn--success btn--large" aria-label="Confirmar importação dos produtos">
+                                        ✓ Confirmar Importação
+                                    </button>
+                                    <button id="cancel-import" class="btn btn--secondary btn--large" aria-label="Cancelar importação">
+                                        ✗ Cancelar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <section class="current-products">
+                            <h3>📋 Produtos Carregados Atualmente</h3>
+                            <p id="current-products-count" class="section-info" aria-live="polite">0 produtos</p>
+                            <div class="export-actions">
+                                <button id="export-current" class="btn btn--primary btn--small" aria-label="Exportar produtos para Excel">
+                                    📥 Exportar Excel
+                                </button>
+                                <button id="export-csv" class="btn btn--primary btn--small" aria-label="Exportar dados para CSV">
+                                    📄 Exportar CSV
+                                </button>
+                                <button id="export-pdf" class="btn btn--primary btn--small" aria-label="Exportar relatório em PDF">
+                                    📑 Exportar PDF
+                                </button>
+                            </div>
+                        </section>
+                    </section>
+                </section>
+            </div>
+        </section>
+
+        <!-- ========== MODAL DE FINALIZAÇÃO ========== -->
+        <dialog id="finish-modal" class="modal" aria-labelledby="modal-title">
+            <div class="modal-content">
+                <h2 id="modal-title">✓ Inventário Finalizado</h2>
+                <div class="summary-info">
+                    <dl class="summary-list">
+                        <dt>Colaborador:</dt>
+                        <dd id="summary-collaborator"></dd>
+
+                        <dt>Localização:</dt>
+                        <dd id="summary-location"></dd>
+
+                        <dt>Hora de Início:</dt>
+                        <dd id="summary-start-time"></dd>
+
+                        <dt>Hora de Término:</dt>
+                        <dd id="summary-end-time"></dd>
+
+                        <dt>Tempo Total:</dt>
+                        <dd id="summary-total-time"></dd>
+
+                        <dt class="highlight">Itens Contados:</dt>
+                        <dd id="summary-items" class="highlight"></dd>
+
+                        <dt class="highlight">Produtos Únicos:</dt>
+                        <dd id="summary-unique" class="highlight"></dd>
+                    </dl>
+                </div>
+                <div class="modal-actions">
+                    <button id="finish-return-login" class="btn btn--primary btn--large" aria-label="Voltar para a tela de login">
+                        ← Voltar para Login
+                    </button>
+                    <button id="finish-continue" class="btn btn--secondary btn--large" aria-label="Continuar escaneando produtos">
+                        ▶ Continuar Contando
+                    </button>
+                </div>
+            </div>
+        </dialog>
+
+    </div>
+
+    <!-- Scripts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
+
+    <!-- Scripts locais (ordem importante) -->
+    <script src="js/storage.js" defer></script>
+    <script src="js/utils.js" defer></script>
+    <script src="js/app.js" defer></script>
+    <script src="js/test-data.js" defer></script>
+</body>
+</html>
