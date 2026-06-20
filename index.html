@@ -20,28 +20,33 @@
                     </header>
 
                     <form id="login-form" class="login-form" novalidate>
+                        <div id="login-message" class="login-message hidden" role="alert" aria-live="assertive"></div>
+
                         <div class="form-group">
-                            <label for="collaborator-name">Nome do Colaborador</label>
+                            <label for="username-input">Usuário</label>
                             <input
                                 type="text"
-                                id="collaborator-name"
+                                id="username-input"
                                 class="form-input"
-                                placeholder="Digite seu nome completo"
+                                placeholder="Digite seu usuário"
                                 required
                                 autofocus
-                                aria-label="Nome completo do colaborador"
-                                minlength="3"
-                                maxlength="50"
+                                aria-label="Usuário"
+                                autocomplete="username"
                             >
                         </div>
 
                         <div class="form-group">
-                            <label for="user-role">Tipo de Acesso</label>
-                            <select id="user-role" class="form-select" required aria-label="Selecione seu perfil de acesso">
-                                <option value="">-- Selecione --</option>
-                                <option value="operator">Operador (Bipagem)</option>
-                                <option value="supervisor">Supervisor (Dashboard)</option>
-                            </select>
+                            <label for="password-input">Senha</label>
+                            <input
+                                type="password"
+                                id="password-input"
+                                class="form-input"
+                                placeholder="Digite sua senha"
+                                required
+                                aria-label="Senha"
+                                autocomplete="current-password"
+                            >
                         </div>
 
                         <button type="submit" class="btn btn--primary btn--large">
@@ -70,15 +75,6 @@
                 <!-- Sidebar -->
                 <aside class="operator-sidebar" aria-label="Informações da sessão">
                     <section class="info-card">
-                        <h2>📍 Localização</h2>
-                        <select id="location-select" class="form-select" aria-label="Escolha a localização do estoque">
-                            <option value="main">Estoque Principal</option>
-                            <option value="warehouse-a">Almoxarifado A</option>
-                            <option value="warehouse-b">Almoxarifado B</option>
-                        </select>
-                    </section>
-
-                    <section class="info-card">
                         <h2>📊 Sessão</h2>
                         <div class="session-stats">
                             <div class="stat-item">
@@ -101,6 +97,22 @@
                 <main class="operator-main">
                     <!-- Seção de Bipagem -->
                     <section class="barcode-section" aria-label="Área de leitura de código de barras">
+                        <div class="product-search-wrapper">
+                            <label for="product-search-input" class="barcode-label">
+                                🔎 Pesquisar produto antes da bipagem
+                            </label>
+                            <input
+                                type="text"
+                                id="product-search-input"
+                                class="form-input product-search-input"
+                                placeholder="Busque por nome, SKU ou EAN..."
+                                aria-label="Pesquisar produto por nome, SKU ou EAN"
+                                autocomplete="off"
+                                list="product-search-options"
+                            >
+                            <datalist id="product-search-options"></datalist>
+                        </div>
+
                         <div class="barcode-input-wrapper">
                             <label for="barcode-input" class="barcode-label">
                                 🔍 Bipe ou digite o código do produto
@@ -121,25 +133,25 @@
                         <article id="product-info" class="product-info hidden" aria-live="polite" aria-label="Informações do produto escaneado">
                             <div class="product-card">
                                 <h3 id="product-name" class="product-name"></h3>
-                                <dl class="product-details">
-                                    <dt>SKU:</dt>
-                                    <dd id="product-sku"></dd>
+                            <dl class="product-details">
+                                <dt>SKU:</dt>
+                                <dd id="product-sku"></dd>
 
-                                    <dt>EAN:</dt>
-                                    <dd id="product-ean"></dd>
+                                <dt>EAN:</dt>
+                                <dd id="product-ean"></dd>
 
-                                    <dt>Estoque do Sistema:</dt>
-                                    <dd id="product-stock"></dd>
+                                <dt>Estoque Atual:</dt>
+                                <dd id="product-stock"></dd>
 
-                                    <dt>Localização:</dt>
-                                    <dd id="product-location"></dd>
+                                <dt>Estoque Mínimo:</dt>
+                                <dd id="product-min-stock"></dd>
 
-                                    <dt>Categoria:</dt>
-                                    <dd id="product-category"></dd>
+                                <dt>Categoria:</dt>
+                                <dd id="product-category"></dd>
 
-                                    <dt>✓ Produto Registrado:</dt>
-                                    <dd id="product-counted" class="highlight"></dd>
-                                </dl>
+                                <dt>✓ Produto Registrado:</dt>
+                                <dd id="product-counted" class="highlight"></dd>
+                            </dl>
                             </div>
                         </article>
 
@@ -150,6 +162,16 @@
                     <!-- Histórico de Bipagens -->
                     <section class="history-section" aria-label="Histórico de bipagens da sessão">
                         <h2>📋 Histórico de Bipagens</h2>
+                        <div class="history-filter">
+                            <input
+                                type="text"
+                                id="history-filter-input"
+                                class="form-input"
+                                placeholder="🔎 Filtrar por Produto, SKU ou EAN..."
+                                aria-label="Filtrar histórico por Produto, SKU ou EAN"
+                                autocomplete="off"
+                            >
+                        </div>
                         <div class="section-controls">
                             <button id="clear-history" class="btn btn--secondary btn--small" aria-label="Limpar histórico de bipagens">
                                 🗑️ Limpar Histórico
@@ -164,7 +186,7 @@
                                         <th>Produto</th>
                                         <th>SKU</th>
                                         <th>EAN</th>
-                                        <th>Localização</th>
+                                        <th>Operador</th>
                                         <th>Ação</th>
                                     </tr>
                                 </thead>
@@ -179,7 +201,10 @@
 
                     <!-- Ações do Operador -->
                     <aside class="operator-actions">
-                        <button id="finish-inventory" class="btn btn--success btn--large" aria-label="Finalizar o inventário atual">
+                        <button id="finish-bipagem" class="btn btn--success btn--large" aria-label="Finalizar bipagem e gerar relatório">
+                            ✓ Finalizar Bipagem
+                        </button>
+                        <button id="finish-inventory" class="btn btn--primary btn--large" aria-label="Finalizar o inventário atual">
                             ✓ Finalizar Inventário
                         </button>
                     </aside>
@@ -202,11 +227,14 @@
             </header>
 
             <nav class="supervisor-nav" aria-label="Abas de navegação do supervisor">
-                <button class="nav-btn nav-btn--active" data-tab="dashboard" aria-selected="true">📊 Dashboard</button>
-                <button class="nav-btn" data-tab="history" aria-selected="false">📋 Histórico</button>
-                <button class="nav-btn" data-tab="divergences" aria-selected="false">⚠️ Divergências</button>
-                <button class="nav-btn" data-tab="not-inventoried" aria-selected="false">📦 Não Inventariados</button>
-                <button class="nav-btn" data-tab="import" aria-selected="false">📥 Importar</button>
+                <button class="nav-btn nav-btn--active" data-tab="dashboard" data-permission="dashboard" aria-selected="true">📊 Dashboard</button>
+                <button class="nav-btn" data-tab="history" data-permission="history" aria-selected="false">📋 Histórico</button>
+                <button class="nav-btn" data-tab="divergences" data-permission="divergences" aria-selected="false">⚠️ Divergências</button>
+                <button class="nav-btn" data-tab="not-inventoried" data-permission="not-inventoried" aria-selected="false">📦 Não Inventariados</button>
+                <button class="nav-btn" data-tab="import" data-permission="import" aria-selected="false">📥 Importação XLSX</button>
+                <button class="nav-btn" data-tab="import-xml" data-permission="import-xml" aria-selected="false">📥 Importação XML</button>
+                <button class="nav-btn" data-tab="reports" data-permission="reports" aria-selected="false">📑 Relatórios</button>
+                <button class="nav-btn" data-tab="config" data-permission="config" aria-selected="false">⚙️ Configurações</button>
             </nav>
 
             <div class="supervisor-container">
@@ -293,13 +321,12 @@
                             <caption>Histórico completo de todas as bipagens</caption>
                             <thead>
                                 <tr>
-                                    <th>Data/Hora</th>
-                                    <th>Colaborador</th>
-                                    <th>Produto</th>
-                                    <th>SKU</th>
-                                    <th>EAN</th>
-                                    <th>Localização</th>
-                                </tr>
+                                        <th>Data/Hora</th>
+                                        <th>Colaborador</th>
+                                        <th>Produto</th>
+                                        <th>SKU</th>
+                                        <th>EAN</th>
+                                    </tr>
                             </thead>
                             <tbody id="all-history-body">
                             </tbody>
@@ -413,17 +440,107 @@
                             <h3>📋 Produtos Carregados Atualmente</h3>
                             <p id="current-products-count" class="section-info" aria-live="polite">0 produtos</p>
                             <div class="export-actions">
-                                <button id="export-current" class="btn btn--primary btn--small" aria-label="Exportar produtos para Excel">
+                                <button id="export-current" data-export-current class="btn btn--primary btn--small" aria-label="Exportar produtos para Excel">
                                     📥 Exportar Excel
                                 </button>
-                                <button id="export-csv" class="btn btn--primary btn--small" aria-label="Exportar dados para CSV">
+                                <button id="export-csv" data-export-csv class="btn btn--primary btn--small" aria-label="Exportar dados para CSV">
                                     📄 Exportar CSV
                                 </button>
-                                <button id="export-pdf" class="btn btn--primary btn--small" aria-label="Exportar relatório em PDF">
+                                <button id="export-pdf" data-export-pdf class="btn btn--primary btn--small" aria-label="Exportar relatório em PDF">
                                     📑 Exportar PDF
                                 </button>
                             </div>
                         </section>
+                    </section>
+                </section>
+
+                <!-- TAB: Importar XML -->
+                <section id="tab-import-xml" class="tab-content" aria-label="Importar XML de NF-e">
+                    <section class="import-section">
+                        <h2>📥 Importar XML de NF-e</h2>
+                        <p class="section-info">Importe itens de notas fiscais, crie produtos ausentes, atualize estoque e registre movimentações de entrada.</p>
+
+                        <div class="import-area xml-import-area">
+                            <input
+                                type="file"
+                                id="xml-file-input"
+                                accept=".xml"
+                                class="file-input"
+                                aria-label="Selecione arquivo XML de NF-e para importar"
+                            >
+                            <label for="xml-file-input" class="file-label">
+                                <div class="file-icon">📄</div>
+                                <p><strong>Importar XML</strong></p>
+                                <span>Suporta XML de NF-e</span>
+                            </label>
+                        </div>
+
+                        <div id="xml-import-status" class="hidden" aria-live="polite" aria-label="Status da importação XML">
+                            <div id="xml-import-result" class="import-result"></div>
+                            <div id="xml-import-preview" class="import-preview hidden">
+                                <h3>📊 Prévia dos Itens Importados</h3>
+                                <div class="table-responsive">
+                                    <table id="xml-import-preview-table" class="preview-table">
+                                        <caption>Prévia dos itens extraídos do XML</caption>
+                                        <thead>
+                                            <tr>
+                                                <th>Código</th>
+                                                <th>EAN</th>
+                                                <th>Descrição</th>
+                                                <th>Quantidade</th>
+                                                <th>Valor Unitário</th>
+                                                <th>Valor Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="xml-import-preview-body">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+
+                <!-- TAB: Relatórios -->
+                <section id="tab-reports" class="tab-content" aria-label="Relatórios">
+                    <section class="reports-section">
+                        <h2>📑 Relatórios</h2>
+                        <p class="section-info">Exporte produtos, bipagens e relatórios operacionais do inventário.</p>
+                        <div id="report-summary" class="report-summary" aria-live="polite"></div>
+                        <div class="export-actions">
+                            <button class="btn btn--primary btn--small" data-export-current aria-label="Exportar produtos para Excel">
+                                📥 Exportar Excel
+                            </button>
+                            <button class="btn btn--primary btn--small" data-export-csv aria-label="Exportar dados para CSV">
+                                📄 Exportar CSV
+                            </button>
+                            <button class="btn btn--primary btn--small" data-export-pdf aria-label="Exportar relatório em PDF">
+                                📑 Exportar PDF
+                            </button>
+                        </div>
+                    </section>
+                </section>
+
+                <!-- TAB: Configurações -->
+                <section id="tab-config" class="tab-content" aria-label="Configurações">
+                    <section class="config-section">
+                        <h2>⚙️ Configurações</h2>
+                        <div class="config-grid">
+                            <article class="info-card">
+                                <h3>Perfis de Acesso</h3>
+                                <p>Supervisor: Dashboard, Importação XLSX, Importação XML, Relatórios e Configurações.</p>
+                                <p>Operador: Bipagem e Histórico.</p>
+                            </article>
+                            <article class="info-card">
+                                <h3>Usuários Iniciais</h3>
+                                <p>Supervisor: admin / 123456</p>
+                                <p>Operador: operador / 123456</p>
+                            </article>
+                            <article class="info-card">
+                                <h3>Persistência</h3>
+                                <p>O login autenticado é mantido em localStorage até realizar logout.</p>
+                            </article>
+                        </div>
                     </section>
                 </section>
             </div>
@@ -437,9 +554,6 @@
                     <dl class="summary-list">
                         <dt>Colaborador:</dt>
                         <dd id="summary-collaborator"></dd>
-
-                        <dt>Localização:</dt>
-                        <dd id="summary-location"></dd>
 
                         <dt>Hora de Início:</dt>
                         <dd id="summary-start-time"></dd>
@@ -463,6 +577,41 @@
                     </button>
                     <button id="finish-continue" class="btn btn--secondary btn--large" aria-label="Continuar escaneando produtos">
                         ▶ Continuar Contando
+                    </button>
+                </div>
+            </div>
+        </dialog>
+
+        <!-- ========== MODAL RELATÓRIO DE BIPAGEM ========== -->
+        <dialog id="bipagem-report-modal" class="modal modal--wide" aria-labelledby="bipagem-report-title">
+            <div class="modal-content">
+                <h2 id="bipagem-report-title">Relatório Consolidado de Bipagem</h2>
+                <p class="section-info">Relatório agrupado por produto, SKU e quantidade bipada nesta sessão.</p>
+
+                <div class="table-responsive">
+                    <table id="bipagem-report-table" class="bipagem-report-table">
+                        <caption>Produto, SKU e Quantidade</caption>
+                        <thead>
+                            <tr>
+                                <th>Produto</th>
+                                <th>SKU</th>
+                                <th>Quantidade</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bipagem-report-body">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="export-bipagem-xlsx" class="btn btn--success btn--large" aria-label="Exportar relatório de bipagem em XLSX">
+                        📥 Exportar XLSX
+                    </button>
+                    <button id="export-bipagem-csv" class="btn btn--primary btn--large" aria-label="Exportar relatório de bipagem em CSV">
+                        📄 Exportar CSV
+                    </button>
+                    <button id="close-bipagem-report" class="btn btn--secondary btn--large" aria-label="Voltar para bipagem">
+                        ← Voltar à Bipagem
                     </button>
                 </div>
             </div>

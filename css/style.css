@@ -143,6 +143,25 @@ body {
     color: var(--color-text-secondary);
 }
 
+.login-message {
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-xl);
+    font-weight: 600;
+}
+
+.login-message.error {
+    background: var(--color-danger-light);
+    color: var(--color-danger);
+    border-left: 4px solid var(--color-danger);
+}
+
+.login-message.success {
+    background: var(--color-success-light);
+    color: var(--color-success);
+    border-left: 4px solid var(--color-success);
+}
+
 /* ============================================================================
    FORMULÁRIOS
    ============================================================================ */
@@ -386,6 +405,14 @@ body {
     margin-bottom: var(--spacing-2xl);
 }
 
+.product-search-wrapper {
+    margin-bottom: var(--spacing-lg);
+}
+
+.product-search-input {
+    background: var(--color-bg);
+}
+
 .barcode-input-wrapper {
     margin-bottom: var(--spacing-xl);
 }
@@ -524,6 +551,14 @@ body {
     display: flex;
     gap: var(--spacing-md);
     flex-wrap: wrap;
+}
+
+.history-filter {
+    margin-bottom: var(--spacing-lg);
+}
+
+.history-filter .form-input {
+    max-width: 420px;
 }
 
 .table-responsive {
@@ -856,6 +891,10 @@ tbody tr:hover {
     flex-wrap: wrap;
 }
 
+.xml-import-area {
+    margin-top: var(--spacing-2xl);
+}
+
 .current-products {
     margin-top: var(--spacing-2xl);
     padding-top: var(--spacing-xl);
@@ -866,6 +905,45 @@ tbody tr:hover {
     font-size: 1.1rem;
     margin-bottom: var(--spacing-md);
     color: var(--color-text);
+}
+
+.reports-section,
+.config-section {
+    background: var(--color-white);
+    padding: var(--spacing-xl);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+}
+
+.reports-section h2,
+.config-section h2 {
+    font-size: 1.2rem;
+    margin-bottom: var(--spacing-lg);
+    color: var(--color-text);
+}
+
+.report-summary {
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-lg);
+    background: var(--color-bg);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+}
+
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--spacing-lg);
+}
+
+.config-grid h3 {
+    font-size: 1rem;
+    margin-bottom: var(--spacing-md);
+    color: var(--color-primary);
+}
+
+.config-grid p {
+    margin-bottom: var(--spacing-sm);
 }
 
 .section-info {
@@ -942,6 +1020,10 @@ tbody tr:hover {
     display: none !important;
 }
 
+.modal--wide .modal-content {
+    max-width: 900px;
+}
+
 .modal-content {
     background: var(--color-white);
     border-radius: var(--radius-lg);
@@ -998,6 +1080,15 @@ tbody tr:hover {
     gap: var(--spacing-md);
     justify-content: center;
     flex-wrap: wrap;
+}
+
+.bipagem-report-table {
+    margin-top: var(--spacing-lg);
+}
+
+.bipagem-report-table th:last-child,
+.bipagem-report-table td:last-child {
+    text-align: right;
 }
 
 /* ============================================================================

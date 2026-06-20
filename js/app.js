@@ -14,7 +14,34 @@ const App = {
         sessionStartTime: null,
         sessionScans: [],
         sessionTimer: null,
-        pendingImport: null
+        pendingImport: null,
+        pendingXMLImport: null,
+        bipagemReportRows: []
+    },
+
+    permissions: {
+        supervisor: ['dashboard', 'history', 'divergences', 'not-inventoried', 'import', 'import-xml', 'reports', 'config'],
+        operator: ['bipagem', 'history']
+    },
+
+    isTabAllowed(tabName) {
+        const role = this.state.userRole;
+        const allowed = this.permissions[role] || [];
+        return tabName === 'operator' || allowed.includes(tabName);
+    },
+
+    enforcePermissions() {
+        const role = this.state.userRole;
+        const allowed = this.permissions[role] || [];
+
+        document.querySelectorAll('[data-permission]').forEach((el) => {
+            const permission = el.dataset.permission;
+            if (permission === 'operator' || allowed.includes(permission)) {
+                el.style.display = '';
+            } else {
+                el.style.display = 'none';
+            }
+        });
     },
 
     /**
@@ -23,8 +50,6 @@ const App = {
 
     init() {
         console.log('🚀 Inicializando Sistema de Inventário Inteligente...');
-        
-        Storage.clearCurrentSession();
         
         this.setupEventListeners();
 
@@ -35,10 +60,8 @@ const App = {
         if (products.length === 0) {
             Utils.showError("Nenhum produto foi carregado na base.");
         }
-        
-        this.showScreen('login-screen');
-        
-        console.log('✅ Sistema pronto!');
+
+        this.restoreAuthSession();
     },
 
     /**
@@ -72,7 +95,12 @@ const App = {
 
         // Operador
         document.getElementById('barcode-input')?.addEventListener('keypress', (e) => this.handleBarcodeScan(e));
+        document.getElementById('product-search-input')?.addEventListener('input', (e) => this.handleProductSearchInput(e));
+        document.getElementById('product-search-input')?.addEventListener('change', (e) => this.handleProductSearchSelect(e));
+        document.getElementById('product-search-input')?.addEventListener('keydown', (e) => this.handleProductSearchKeydown(e));
         document.getElementById('clear-history')?.addEventListener('click', () => this.clearHistory());
+        document.getElementById('history-filter-input')?.addEventListener('input', (e) => this.updateHistoryTable());
+        document.getElementById('finish-bipagem')?.addEventListener('click', () => this.showBipagemReportModal());
         document.getElementById('finish-inventory')?.addEventListener('click', () => this.finishInventory());
 
         // Supervisor - Navegação de tabs
@@ -84,11 +112,23 @@ const App = {
         document.getElementById('excel-file-input')?.addEventListener('change', (e) => this.handleFileUpload(e));
         document.getElementById('confirm-import')?.addEventListener('click', () => this.confirmImport());
         document.getElementById('cancel-import')?.addEventListener('click', () => this.cancelImport());
+        document.getElementById('xml-file-input')?.addEventListener('change', (e) => this.handleXMLFileUpload(e));
 
         // Supervisor - Exportação
-        document.getElementById('export-current')?.addEventListener('click', () => this.exportToExcel());
-        document.getElementById('export-csv')?.addEventListener('click', () => this.exportToCSV());
-        document.getElementById('export-pdf')?.addEventListener('click', () => this.exportToPDF());
+        document.querySelectorAll('[data-export-current]').forEach(btn => {
+            btn.addEventListener('click', () => this.exportToExcel());
+        });
+        document.querySelectorAll('[data-export-csv]').forEach(btn => {
+            btn.addEventListener('click', () => this.exportToCSV());
+        });
+        document.querySelectorAll('[data-export-pdf]').forEach(btn => {
+            btn.addEventListener('click', () => this.exportToPDF());
+        });
+
+        // Relatório de bipagem
+        document.getElementById('export-bipagem-xlsx')?.addEventListener('click', () => this.exportBipagemReportXLSX());
+        document.getElementById('export-bipagem-csv')?.addEventListener('click', () => this.exportBipagemReportCSV());
+        document.getElementById('close-bipagem-report')?.addEventListener('click', () => this.closeBipagemReportModal());
 
         // Supervisor - Filtros
         document.getElementById('apply-filters')?.addEventListener('click', () => this.applyFilters());
@@ -97,8 +137,8 @@ const App = {
         document.getElementById('finish-return-login')?.addEventListener('click', () => this.handleLogout());
         document.getElementById('finish-continue')?.addEventListener('click', () => this.closeFinishModal());
 
-        // Drag and drop para importação
-        const importArea = document.querySelector('.import-area');
+        // Drag and drop para importação XLSX
+        const importArea = document.querySelector('.import-area:not(.xml-import-area)');
         if (importArea) {
             importArea.addEventListener('dragover', (e) => e.preventDefault());
             importArea.addEventListener('drop', (e) => {
@@ -109,38 +149,52 @@ const App = {
                 }
             });
         }
+
+        // Drag and drop para importação XML
+        const xmlImportArea = document.querySelector('.xml-import-area');
+        if (xmlImportArea) {
+            xmlImportArea.addEventListener('dragover', (e) => e.preventDefault());
+            xmlImportArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    this.handleXMLFileUpload({ target: { files } });
+                }
+            });
+        }
     },
 
     handleLogin(event) {
         event.preventDefault();
 
-        const name = document.getElementById('collaborator-name').value.trim();
-        const role = document.getElementById('user-role').value;
+        const username = document.getElementById('username-input').value.trim();
+        const password = document.getElementById('password-input').value;
+        const authSession = Storage.validateCredentials(username, password);
 
-        if (!Utils.validateCollaboratorName(name) || !role) {
-            alert('Por favor, preencha todos os campos corretamente.');
+        if (!authSession) {
+            this.showLoginMessage('Usuário ou senha inválidos.', 'error');
+            document.getElementById('password-input').value = '';
+            document.getElementById('username-input').focus();
             return;
         }
 
-        // Salvar colaborador
-        Storage.addCollaborator(name);
+        Storage.addCollaborator(authSession.name);
 
-        // Criar sessão
-        this.state.currentUser = name;
-        this.state.userRole = role;
+        this.state.currentUser = authSession.name;
+        this.state.userRole = authSession.role;
         this.state.sessionStartTime = new Date();
         this.state.sessionScans = [];
 
         const session = Storage.createSession({
-            collaborator: name,
-            role: role,
+            collaborator: authSession.name,
+            role: authSession.role,
             location: 'main'
         });
 
         this.state.currentSession = session;
+        Storage.saveAuthSession(authSession);
 
-        // Mostrar tela apropriada
-        if (role === 'operator') {
+        if (authSession.role === 'operator') {
             this.showOperatorScreen();
         } else {
             this.showSupervisorScreen();
@@ -148,7 +202,6 @@ const App = {
     },
 
     handleLogout() {
-        // Finalizar sessão se houver
         if (this.state.currentSession) {
             Storage.endSession({
                 itemsScanned: this.state.sessionScans.length,
@@ -157,21 +210,60 @@ const App = {
             });
         }
 
-        // Limpar estado
         this.state.currentUser = null;
         this.state.userRole = null;
         this.state.currentSession = null;
         this.state.sessionScans = [];
         if (this.state.sessionTimer) {
             clearInterval(this.state.sessionTimer);
+            this.state.sessionTimer = null;
         }
 
-        // Resetar formulário
+        Storage.clearAuthSession();
         document.getElementById('login-form').reset();
+        this.hideLoginMessage();
 
-        // Voltar para login
         this.showScreen('login-screen');
-        document.getElementById('collaborator-name').focus();
+        document.getElementById('username-input').focus();
+    },
+
+    restoreAuthSession() {
+        const authSession = Storage.getAuthSession();
+
+        if (!authSession) {
+            this.showScreen('login-screen');
+            document.getElementById('username-input').focus();
+            return;
+        }
+
+        this.state.currentUser = authSession.name;
+        this.state.userRole = authSession.role;
+
+        const currentSession = Storage.getCurrentSession();
+        if (currentSession && currentSession.role === authSession.role) {
+            this.state.currentSession = currentSession;
+            this.state.sessionStartTime = new Date(currentSession.startTime);
+            this.state.sessionScans = Array.isArray(currentSession.scans) ? currentSession.scans : [];
+        }
+
+        if (authSession.role === 'operator') {
+            this.showOperatorScreen();
+        } else {
+            this.showSupervisorScreen();
+        }
+    },
+
+    showLoginMessage(message, type = 'error') {
+        const messageElement = document.getElementById('login-message');
+        messageElement.textContent = message;
+        messageElement.className = `login-message ${type}`;
+        Utils.show(messageElement);
+    },
+
+    hideLoginMessage() {
+        const messageElement = document.getElementById('login-message');
+        messageElement.textContent = '';
+        Utils.hide(messageElement);
     },
 
     /**
@@ -181,7 +273,15 @@ const App = {
     showOperatorScreen() {
         this.showScreen('operator-screen');
 
-        // Preencher dados do operador
+        if (!this.state.currentSession) {
+            this.state.currentSession = Storage.createSession({
+                collaborator: this.state.currentUser,
+                role: this.state.userRole,
+                location: 'main'
+            });
+            this.state.sessionStartTime = new Date();
+        }
+
         document.getElementById('operator-name').textContent = this.state.currentUser;
 
         // Focar no input de leitura
@@ -243,8 +343,101 @@ const App = {
         barcodeInput.focus();
     },
 
+    handleProductSearchInput(event) {
+        this.renderProductSuggestions(event.target.value);
+    },
+
+    handleProductSearchKeydown(event) {
+        if (event.key !== 'Enter') return;
+
+        const product = this.findProductBySearchTerm(event.target.value);
+        if (product) {
+            event.preventDefault();
+            this.loadProductForBipagem(product);
+        }
+    },
+
+    handleProductSearchSelect(event) {
+        const product = this.findProductBySearchTerm(event.target.value);
+
+        if (!product) {
+            this.showProductError('Nenhum produto encontrado para o termo informado.');
+            event.target.value = '';
+            document.getElementById('barcode-input').focus();
+            return;
+        }
+
+        this.loadProductForBipagem(product);
+    },
+
+    renderProductSuggestions(searchTerm) {
+        const datalist = document.getElementById('product-search-options');
+        const term = Storage.normalizeCode(searchTerm).toLowerCase();
+
+        if (!datalist) return;
+
+        datalist.innerHTML = '';
+
+        if (!term) {
+            return;
+        }
+
+        Storage.getProducts()
+            .filter(product => this.matchesProductSearch(product, term))
+            .slice(0, 20)
+            .forEach(product => {
+                const option = document.createElement('option');
+                option.value = Storage.getProductDisplayName(product);
+                option.label = `${Storage.normalizeCode(product.SKU) || Storage.getProductPrimaryCode(product)} | ${Storage.normalizeCode(product.EAN) || Storage.getProductPrimaryCode(product)}`;
+                datalist.appendChild(option);
+            });
+    },
+
+    matchesProductSearch(product, term) {
+        return [
+            Storage.getProductDisplayName(product),
+            Storage.normalizeCode(product.SKU),
+            Storage.normalizeCode(product.EAN),
+            Storage.normalizeCode(product.Barcode),
+            Storage.normalizeCode(product.Codigo),
+            Storage.normalizeCode(product.Código)
+        ].some(value => Storage.normalizeCode(value).toLowerCase().includes(term));
+    },
+
+    findProductBySearchTerm(searchTerm) {
+        const term = Storage.normalizeCode(searchTerm).toLowerCase();
+
+        if (!term) {
+            return null;
+        }
+
+        const products = Storage.getProducts();
+        return products.find(product => [
+            Storage.getProductDisplayName(product),
+            Storage.normalizeCode(product.SKU),
+            Storage.normalizeCode(product.EAN),
+            Storage.normalizeCode(product.Barcode),
+            Storage.normalizeCode(product.Codigo),
+            Storage.normalizeCode(product.Código)
+        ].some(value => Storage.normalizeCode(value).toLowerCase() === term))
+            || products.find(product => this.matchesProductSearch(product, term));
+    },
+
+    loadProductForBipagem(product) {
+        const scan = {
+            product: Storage.getProductDisplayName(product),
+            sku: Storage.normalizeCode(product.SKU),
+            ean: Storage.getProductPrimaryCode(product),
+            stock: Storage.getProductStock(product),
+            category: Storage.getProductCategory(product)
+        };
+
+        this.showProductInfo(product, scan);
+        document.getElementById('product-search-input').value = '';
+        document.getElementById('barcode-input').focus();
+    },
+
     recordScan(product, codigo = '') {
-        const location = document.getElementById('location-select').value;
         const now = new Date();
 
         const scan = {
@@ -254,8 +447,6 @@ const App = {
             ean: Storage.getProductPrimaryCode(product),
             barcode: Storage.normalizeCode(codigo),
             stock: Storage.getProductStock(product),
-            location: location,
-            locationLabel: this.getLocationLabel(location),
             category: Storage.getProductCategory(product),
             timestamp: now.toISOString(),
             time: now.toLocaleTimeString('pt-BR')
@@ -275,16 +466,15 @@ const App = {
         const productSKU = document.getElementById('product-sku');
         const productEAN = document.getElementById('product-ean');
         const productStock = document.getElementById('product-stock');
-        const productLocation = document.getElementById('product-location');
+        const productMinStock = document.getElementById('product-min-stock');
         const productCategory = document.getElementById('product-category');
         const productCounted = document.getElementById('product-counted');
-        const location = document.getElementById('location-select').value;
 
         productName.textContent = Storage.getProductDisplayName(product);
         productSKU.textContent = Storage.normalizeCode(product.SKU) || 'Não informado';
         productEAN.textContent = Storage.normalizeCode(product.EAN) || Storage.normalizeCode(product.Barcode) || Storage.normalizeCode(product.Codigo) || Storage.normalizeCode(product.Código) || Storage.normalizeCode(product.SKU) || 'Não informado';
         productStock.textContent = Storage.getProductStock(product);
-        productLocation.textContent = this.getLocationLabel(location);
+        productMinStock.textContent = Storage.getProductMinStock(product);
         productCategory.textContent = Storage.getProductCategory(product);
 
         const productCode = Storage.getProductPrimaryCode(product);
@@ -335,8 +525,17 @@ const App = {
     updateHistoryTable() {
         const tbody = document.getElementById('history-body');
         const emptyState = document.getElementById('empty-history');
+        const filterInput = document.getElementById('history-filter-input');
+        const filterTerm = filterInput ? filterInput.value.trim().toLowerCase() : '';
 
-        if (this.state.sessionScans.length === 0) {
+        const scans = this.state.sessionScans.filter((scan) => {
+            if (!filterTerm) return true;
+            const fields = [scan.product, Storage.normalizeCode(scan.sku), Storage.normalizeCode(scan.ean)]
+                .map((value) => value.toLowerCase());
+            return fields.some((value) => value.includes(filterTerm));
+        });
+
+        if (scans.length === 0) {
             Utils.show(emptyState);
             tbody.innerHTML = '';
             return;
@@ -345,8 +544,7 @@ const App = {
         Utils.hide(emptyState);
         tbody.innerHTML = '';
 
-        // Adicionar em ordem reversa (mais recentes primeiro)
-        [...this.state.sessionScans].reverse().forEach((scan, index) => {
+        [...scans].reverse().forEach((scan, index) => {
             const row = document.createElement('tr');
             row.dataset.ean = Storage.getScanPrimaryCode(scan);
             row.dataset.index = index;
@@ -355,7 +553,7 @@ const App = {
                 <td>${scan.product}</td>
                 <td>${scan.sku}</td>
                 <td>${Storage.normalizeCode(scan.ean)}</td>
-                <td>${this.getLocationLabel(scan.location)}</td>
+                <td>${scan.collaborator}</td>
                 <td>
                     <button class="btn btn--secondary btn--small btn-remove-scan" aria-label="Remover bipagem do produto ${scan.product}">
                         Remover
@@ -365,15 +563,27 @@ const App = {
             tbody.appendChild(row);
         });
 
-        // Adicionar event listeners aos botões de remover
         document.querySelectorAll('.btn-remove-scan').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const row = e.target.closest('tr');
                 const ean = row.dataset.ean;
-                const reverseIndex = parseInt(row.dataset.index, 10);
-                if (!isNaN(reverseIndex)) {
-                    const actualIndex = this.state.sessionScans.length - 1 - reverseIndex;
-                    this.removeScanByIndex(actualIndex);
+                const originalScan = [...this.state.sessionScans].reverse().find((scan) => {
+                    const matchesFilter = (scan) => {
+                        if (!filterTerm) return true;
+                        const fields = [scan.product, Storage.normalizeCode(scan.sku), Storage.normalizeCode(scan.ean)]
+                            .map((value) => value.toLowerCase());
+                        return fields.some((value) => value.includes(filterTerm));
+                    };
+
+                    return matchesFilter(scan) && Storage.getScanPrimaryCode(scan) === ean;
+                });
+
+                const realIndex = originalScan
+                    ? this.state.sessionScans.indexOf(originalScan)
+                    : -1;
+
+                if (realIndex >= 0) {
+                    this.removeScanByIndex(realIndex);
                 }
             });
         });
@@ -407,9 +617,6 @@ const App = {
 
         // Preencher modal
         document.getElementById('summary-collaborator').textContent = this.state.currentUser;
-        document.getElementById('summary-location').textContent = this.getLocationLabel(
-            document.getElementById('location-select').value
-        );
         document.getElementById('summary-start-time').textContent = this.state.sessionStartTime.toLocaleTimeString('pt-BR');
         document.getElementById('summary-end-time').textContent = endTime.toLocaleTimeString('pt-BR');
         document.getElementById('summary-total-time').textContent = Utils.formatTime(duration);
@@ -436,12 +643,19 @@ const App = {
         this.showScreen('supervisor-screen');
         document.getElementById('supervisor-name').textContent = this.state.currentUser;
 
-        // Mostrar dashboard por padrão
-        this.showTab('dashboard');
+        this.enforcePermissions();
+
+        const firstAllowed = this.permissions[this.state.userRole]?.[0] || 'dashboard';
+        this.showTab(firstAllowed);
     },
 
     handleTabSwitch(event) {
         const tabName = event.target.dataset.tab;
+        if (!this.isTabAllowed(tabName)) {
+            this.showError('Acesso negado a esta funcionalidade.');
+            return;
+        }
+
         this.showTab(tabName);
     },
 

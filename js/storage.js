@@ -12,7 +12,36 @@ const Storage = {
         SCANS: 'inventory_scans',
         SESSIONS: 'inventory_sessions',
         CURRENT_SESSION: 'current_session',
-        COLLABORATORS: 'inventory_collaborators'
+        COLLABORATORS: 'inventory_collaborators',
+        MOVEMENTS: 'inventory_movements',
+        AUTH_SESSION: 'inventory_auth_session'
+    },
+
+    USERS: {
+        admin: {
+            username: 'admin',
+            password: '123456',
+            role: 'supervisor',
+            name: 'Supervisor'
+        },
+        joao: {
+            username: 'joao',
+            password: '123456',
+            role: 'operator',
+            name: 'Joao'
+        },
+        maria: {
+            username: 'maria',
+            password: '123456',
+            role: 'operator',
+            name: 'Maria'
+        },
+        carlos: {
+            username: 'carlos',
+            password: '123456',
+            role: 'operator',
+            name: 'Carlos'
+        }
     },
 
     init() {
@@ -22,9 +51,63 @@ const Storage = {
         if (!this.getScans()) {
             this.saveScans([]);
         }
-        if (!this.getSessions()) {
-            this.saveSessions([]);
+        if (!this.getCollaborators()) {
+            localStorage.setItem(this.KEYS.COLLABORATORS, JSON.stringify([]));
         }
+        if (!this.getMovements()) {
+            this.saveMovements([]);
+        }
+    },
+
+    validateCredentials(username, password) {
+        const user = this.USERS[String(username || '').trim().toLowerCase()];
+
+        if (!user || user.password !== String(password || '')) {
+            return null;
+        }
+
+        return {
+            username: user.username,
+            name: user.name,
+            role: user.role,
+            loginAt: new Date().toISOString()
+        };
+    },
+
+    saveAuthSession(authSession) {
+        localStorage.setItem(this.KEYS.AUTH_SESSION, JSON.stringify(authSession));
+    },
+
+    getAuthSession() {
+        const data = localStorage.getItem(this.KEYS.AUTH_SESSION);
+
+        if (!data) {
+            return null;
+        }
+
+        try {
+            const parsed = JSON.parse(data);
+            const user = this.USERS[parsed?.username];
+
+            if (!user || parsed.role !== user.role) {
+                this.clearAuthSession();
+                return null;
+            }
+
+            return {
+                username: user.username,
+                name: user.name,
+                role: user.role,
+                loginAt: parsed.loginAt || new Date().toISOString()
+            };
+        } catch (error) {
+            this.clearAuthSession();
+            return null;
+        }
+    },
+
+    clearAuthSession() {
+        localStorage.removeItem(this.KEYS.AUTH_SESSION);
     },
 
     getProducts() {
@@ -77,7 +160,8 @@ const Storage = {
             String(product.Barcode || '').trim() === codigo ||
             String(product.QRCode || '').trim() === codigo ||
             String(product.Codigo || '').trim() === codigo ||
-            String(product.Código || '').trim() === codigo
+            String(product.Código || '').trim() === codigo ||
+            String(product.CodigoProduto || '').trim() === codigo
         );
     },
 
@@ -88,7 +172,7 @@ const Storage = {
     normalizeProduct(product = {}) {
         const source = product || {};
         const normalized = { ...source };
-        const codeKeys = ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código'];
+        const codeKeys = ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto'];
         const textKeys = ['Produto', 'Nome', 'Categoria', 'Category', 'Localizacao', 'Localização', 'Local', 'Location'];
 
         codeKeys.forEach(key => {
@@ -173,8 +257,22 @@ const Storage = {
         return String(stock).trim();
     },
 
+    getProductMinStock(product) {
+        const stock = product?.EstoqueMinimo ?? product?.EstoqueMin ?? product?.EstoqueMínimo ?? product?.Minimo ?? product?.Mínimo ?? product?.StockMin;
+
+        if (stock === undefined || stock === null || stock === '') {
+            return '0';
+        }
+
+        return String(stock).trim();
+    },
+
+    getProductLocation(product) {
+        return this.getField(product, 'Localizacao', 'Localização', 'Local', 'Location') || 'Não informada';
+    },
+
     getProductCodeFields(product) {
-        return ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código']
+        return ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto']
             .map(key => this.normalizeCode(product?.[key]))
             .filter(Boolean);
     },
@@ -208,6 +306,26 @@ const Storage = {
         });
         this.saveScans(scans);
         return scans;
+    },
+
+    getMovements() {
+        const data = localStorage.getItem(this.KEYS.MOVEMENTS);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveMovements(movements) {
+        localStorage.setItem(this.KEYS.MOVEMENTS, JSON.stringify(movements));
+    },
+
+    addMovement(movement) {
+        const movements = this.getMovements();
+        movements.push({
+            ...movement,
+            timestamp: new Date().toISOString(),
+            id: this.generateId()
+        });
+        this.saveMovements(movements);
+        return movements;
     },
 
     getScansByCollaborator(collaborator) {
@@ -308,12 +426,15 @@ const Storage = {
         localStorage.removeItem(this.KEYS.SESSIONS);
         localStorage.removeItem(this.KEYS.CURRENT_SESSION);
         localStorage.removeItem(this.KEYS.COLLABORATORS);
+        localStorage.removeItem(this.KEYS.MOVEMENTS);
+        localStorage.removeItem(this.KEYS.AUTH_SESSION);
     },
 
     getStatistics() {
         const scans = this.getScans() || [];
         const sessions = this.getSessions() || [];
         const products = this.getProducts() || [];
+        const movements = this.getMovements() || [];
 
         const uniqueCollaborators = [...new Set(scans.map(s => this.normalizeCode(s.collaborator)).filter(Boolean))];
         const uniqueProductsScanned = [...new Set(scans.map(s => this.getScanPrimaryCode(s)).filter(Boolean))];
@@ -346,11 +467,13 @@ const Storage = {
             totalScans: scans.length,
             totalProducts: uniqueProductsScanned.length,
             totalCollaborators: uniqueCollaborators.length,
+            totalMovements: movements.length,
             avgTimePerScan,
             productivityByCollaborator,
             uniqueCollaborators,
             scans,
             sessions,
+            movements,
             products
         };
     },
