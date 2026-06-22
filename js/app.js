@@ -11,6 +11,9 @@ const App = {
         currentUser: null,
         userRole: null,
         currentSession: null,
+        currentOperatorName: null,
+        currentOperatorDate: null,
+        currentOperatorTime: null,
         sessionStartTime: null,
         sessionScans: [],
         sessionTimer: null,
@@ -88,6 +91,14 @@ const App = {
         if (loginForm) {
             loginForm.addEventListener('submit', (e) => this.handleLogin(e));
         }
+
+        const operatorStartForm = document.getElementById('operator-start-form');
+        if (operatorStartForm) {
+            operatorStartForm.addEventListener('submit', (e) => this.handleOperatorStart(e));
+        }
+
+        document.getElementById('show-admin-login')?.addEventListener('click', () => this.showAdminLoginForm());
+        document.getElementById('hide-admin-login')?.addEventListener('click', () => this.showOperatorStartForm());
 
         // Logout
         document.getElementById('logout-operator')?.addEventListener('click', () => this.handleLogout());
@@ -178,27 +189,67 @@ const App = {
             return;
         }
 
-        Storage.addCollaborator(authSession.name);
-
         this.state.currentUser = authSession.name;
         this.state.userRole = authSession.role;
+        this.state.currentOperatorName = null;
+        this.state.currentOperatorDate = null;
+        this.state.currentOperatorTime = null;
         this.state.sessionStartTime = new Date();
+        this.state.sessionScans = [];
+        this.state.currentSession = null;
+
+        Storage.clearOperatorSession();
+        Storage.saveAuthSession(authSession);
+        this.showSupervisorScreen();
+    },
+
+    handleOperatorStart(event) {
+        event.preventDefault();
+
+        const operatorName = Utils.sanitizeInput(document.getElementById('operator-name-input').value);
+
+        if (!operatorName) {
+            this.showOperatorMessage('Digite o nome do operador para iniciar.', 'error');
+            document.getElementById('operator-name-input').focus();
+            return;
+        }
+
+        const now = new Date();
+        const operatorSession = {
+            name: operatorName,
+            role: 'operator',
+            date: now.toLocaleDateString('pt-BR'),
+            time: now.toLocaleTimeString('pt-BR'),
+            startedAt: now.toISOString()
+        };
+
+        Storage.addCollaborator(operatorName);
+        Storage.clearAuthSession();
+        Storage.saveOperatorSession(operatorSession);
+
+        this.state.currentUser = operatorName;
+        this.state.userRole = 'operator';
+        this.state.currentOperatorName = operatorName;
+        this.state.currentOperatorDate = operatorSession.date;
+        this.state.currentOperatorTime = operatorSession.time;
+        this.state.sessionStartTime = now;
         this.state.sessionScans = [];
 
         const session = Storage.createSession({
-            collaborator: authSession.name,
-            role: authSession.role,
+            collaborator: operatorName,
+            operatorName,
+            operatorDate: operatorSession.date,
+            operatorTime: operatorSession.time,
+            role: 'operator',
             location: 'main'
         });
 
-        this.state.currentSession = session;
-        Storage.saveAuthSession(authSession);
+        operatorSession.sessionId = session.id;
+        Storage.saveOperatorSession(operatorSession);
 
-        if (authSession.role === 'operator') {
-            this.showOperatorScreen();
-        } else {
-            this.showSupervisorScreen();
-        }
+        this.state.currentSession = session;
+        this.hideOperatorMessage();
+        this.showOperatorScreen();
     },
 
     handleLogout() {
@@ -213,6 +264,9 @@ const App = {
         this.state.currentUser = null;
         this.state.userRole = null;
         this.state.currentSession = null;
+        this.state.currentOperatorName = null;
+        this.state.currentOperatorDate = null;
+        this.state.currentOperatorTime = null;
         this.state.sessionScans = [];
         if (this.state.sessionTimer) {
             clearInterval(this.state.sessionTimer);
@@ -220,37 +274,78 @@ const App = {
         }
 
         Storage.clearAuthSession();
+        Storage.clearOperatorSession();
         document.getElementById('login-form').reset();
+        document.getElementById('operator-start-form').reset();
         this.hideLoginMessage();
-
-        this.showScreen('login-screen');
-        document.getElementById('username-input').focus();
+        this.hideOperatorMessage();
+        this.showOperatorStartForm();
     },
 
     restoreAuthSession() {
         const authSession = Storage.getAuthSession();
+        const operatorSession = Storage.getOperatorSession();
 
-        if (!authSession) {
-            this.showScreen('login-screen');
-            document.getElementById('username-input').focus();
+        if (authSession) {
+            this.state.currentUser = authSession.name;
+            this.state.userRole = authSession.role;
+
+            const currentSession = Storage.getCurrentSession();
+            if (currentSession && currentSession.role === authSession.role) {
+                this.state.currentSession = currentSession;
+                this.state.sessionStartTime = new Date(currentSession.startTime);
+                this.state.sessionScans = Array.isArray(currentSession.scans) ? currentSession.scans : [];
+            }
+
+            if (authSession.role === 'operator') {
+                this.showOperatorScreen();
+            } else {
+                this.showSupervisorScreen();
+            }
             return;
         }
 
-        this.state.currentUser = authSession.name;
-        this.state.userRole = authSession.role;
+        if (operatorSession) {
+            this.state.currentUser = operatorSession.name;
+            this.state.userRole = operatorSession.role;
+            this.state.currentOperatorName = operatorSession.name;
+            this.state.currentOperatorDate = operatorSession.date;
+            this.state.currentOperatorTime = operatorSession.time;
 
-        const currentSession = Storage.getCurrentSession();
-        if (currentSession && currentSession.role === authSession.role) {
-            this.state.currentSession = currentSession;
-            this.state.sessionStartTime = new Date(currentSession.startTime);
-            this.state.sessionScans = Array.isArray(currentSession.scans) ? currentSession.scans : [];
-        }
+            const currentSession = Storage.getCurrentSession();
+            if (currentSession && currentSession.id === operatorSession.sessionId) {
+                this.state.currentSession = currentSession;
+                this.state.sessionStartTime = new Date(currentSession.startTime);
+                this.state.sessionScans = Array.isArray(currentSession.scans) ? currentSession.scans : [];
+            }
 
-        if (authSession.role === 'operator') {
+            this.state.sessionStartTime = this.state.sessionStartTime || new Date(operatorSession.startedAt);
+            this.state.sessionScans = this.state.sessionScans || [];
+
             this.showOperatorScreen();
-        } else {
-            this.showSupervisorScreen();
+            return;
         }
+
+        this.showScreen('login-screen');
+        document.getElementById('operator-name-input').focus();
+    },
+
+    showAdminLoginForm() {
+        Utils.hide(document.getElementById('operator-start-form'));
+        Utils.hide(document.getElementById('show-admin-login'));
+        Utils.show(document.getElementById('login-form'));
+        this.hideLoginMessage();
+        this.hideOperatorMessage();
+        setTimeout(() => document.getElementById('username-input')?.focus(), 50);
+    },
+
+    showOperatorStartForm() {
+        Utils.show(document.getElementById('operator-start-form'));
+        Utils.show(document.getElementById('show-admin-login'));
+        Utils.hide(document.getElementById('login-form'));
+        this.hideLoginMessage();
+        this.hideOperatorMessage();
+        setTimeout(() => document.getElementById('operator-name-input')?.focus(), 50);
     },
 
     showLoginMessage(message, type = 'error') {
@@ -266,6 +361,19 @@ const App = {
         Utils.hide(messageElement);
     },
 
+    showOperatorMessage(message, type = 'error') {
+        const messageElement = document.getElementById('operator-message');
+        messageElement.textContent = message;
+        messageElement.className = `login-message ${type}`;
+        Utils.show(messageElement);
+    },
+
+    hideOperatorMessage() {
+        const messageElement = document.getElementById('operator-message');
+        messageElement.textContent = '';
+        Utils.hide(messageElement);
+    },
+
     /**
      * TELA DO OPERADOR
      */
@@ -274,15 +382,28 @@ const App = {
         this.showScreen('operator-screen');
 
         if (!this.state.currentSession) {
+            const now = new Date();
+            this.state.sessionStartTime = now;
+            this.state.currentOperatorName = this.state.currentUser;
+            this.state.currentOperatorDate = now.toLocaleDateString('pt-BR');
+            this.state.currentOperatorTime = now.toLocaleTimeString('pt-BR');
+
             this.state.currentSession = Storage.createSession({
                 collaborator: this.state.currentUser,
+                operatorName: this.state.currentOperatorName,
+                operatorDate: this.state.currentOperatorDate,
+                operatorTime: this.state.currentOperatorTime,
                 role: this.state.userRole,
                 location: 'main'
             });
-            this.state.sessionStartTime = new Date();
+        } else {
+            this.state.currentOperatorName = this.state.currentSession.operatorName || this.state.currentSession.collaborator || this.state.currentUser;
+            this.state.currentOperatorDate = this.state.currentSession.operatorDate || '';
+            this.state.currentOperatorTime = this.state.currentSession.operatorTime || '';
+            this.state.sessionStartTime = new Date(this.state.currentSession.startTime);
         }
 
-        document.getElementById('operator-name').textContent = this.state.currentUser;
+        document.getElementById('operator-name').textContent = this.state.currentOperatorName;
 
         // Focar no input de leitura
         setTimeout(() => {
@@ -441,7 +562,10 @@ const App = {
         const now = new Date();
 
         const scan = {
-            collaborator: this.state.currentUser,
+            collaborator: this.state.currentOperatorName || this.state.currentUser,
+            operatorName: this.state.currentOperatorName || this.state.currentUser,
+            operatorDate: this.state.currentOperatorDate,
+            operatorTime: this.state.currentOperatorTime,
             product: Storage.getProductDisplayName(product),
             sku: Storage.normalizeCode(product.SKU),
             ean: Storage.getProductPrimaryCode(product),
@@ -525,15 +649,9 @@ const App = {
     updateHistoryTable() {
         const tbody = document.getElementById('history-body');
         const emptyState = document.getElementById('empty-history');
-        const filterInput = document.getElementById('history-filter-input');
-        const filterTerm = filterInput ? filterInput.value.trim().toLowerCase() : '';
+        const filterTerm = this.getHistoryFilterTerm();
 
-        const scans = this.state.sessionScans.filter((scan) => {
-            if (!filterTerm) return true;
-            const fields = [scan.product, Storage.normalizeCode(scan.sku), Storage.normalizeCode(scan.ean)]
-                .map((value) => value.toLowerCase());
-            return fields.some((value) => value.includes(filterTerm));
-        });
+        const scans = this.state.sessionScans.filter((scan) => this.matchesHistorySearch(scan, filterTerm));
 
         if (scans.length === 0) {
             Utils.show(emptyState);
@@ -568,14 +686,7 @@ const App = {
                 const row = e.target.closest('tr');
                 const ean = row.dataset.ean;
                 const originalScan = [...this.state.sessionScans].reverse().find((scan) => {
-                    const matchesFilter = (scan) => {
-                        if (!filterTerm) return true;
-                        const fields = [scan.product, Storage.normalizeCode(scan.sku), Storage.normalizeCode(scan.ean)]
-                            .map((value) => value.toLowerCase());
-                        return fields.some((value) => value.includes(filterTerm));
-                    };
-
-                    return matchesFilter(scan) && Storage.getScanPrimaryCode(scan) === ean;
+                    return this.matchesHistorySearch(scan, filterTerm) && Storage.getScanPrimaryCode(scan) === ean;
                 });
 
                 const realIndex = originalScan
@@ -587,6 +698,24 @@ const App = {
                 }
             });
         });
+    },
+
+    getHistoryFilterTerm() {
+        const filterInput = document.getElementById('history-filter-input');
+        return Storage.normalizeCode(filterInput?.value).toLowerCase();
+    },
+
+    matchesHistorySearch(scan, filterTerm) {
+        if (!filterTerm) return true;
+
+        return [
+            scan.product,
+            scan.sku,
+            scan.ean,
+            scan.barcode,
+            scan.collaborator,
+            scan.operatorName
+        ].some((value) => Storage.normalizeCode(value).toLowerCase().includes(filterTerm));
     },
 
     removeScanByIndex(index) {
@@ -632,6 +761,107 @@ const App = {
 
     closeFinishModal() {
         document.getElementById('finish-modal').close();
+        document.getElementById('barcode-input').focus();
+    },
+
+    showBipagemReportModal() {
+        if (this.state.sessionScans.length === 0) {
+            alert('Nenhuma bipagem registrada nesta sessão.');
+            return;
+        }
+
+        const reportRows = this.buildBipagemReportRows();
+        this.state.bipagemReportRows = reportRows;
+
+        const tbody = document.getElementById('bipagem-report-body');
+        tbody.innerHTML = '';
+
+        reportRows.forEach(row => {
+            const tr = document.createElement('tr');
+            const productCell = document.createElement('td');
+            const skuCell = document.createElement('td');
+            const quantityCell = document.createElement('td');
+
+            productCell.textContent = row.product;
+            skuCell.textContent = row.sku || row.ean || 'Não informado';
+            quantityCell.textContent = row.count;
+            quantityCell.style.textAlign = 'right';
+
+            tr.appendChild(productCell);
+            tr.appendChild(skuCell);
+            tr.appendChild(quantityCell);
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('bipagem-report-modal').showModal();
+    },
+
+    buildBipagemReportRows() {
+        const grouped = new Map();
+
+        this.state.sessionScans.forEach(scan => {
+            const key = `${Storage.normalizeCode(scan.ean)}|${Storage.normalizeCode(scan.sku)}|${Storage.normalizeCode(scan.product)}`;
+            const existing = grouped.get(key) || {
+                operatorName: Storage.normalizeCode(scan.operatorName || scan.collaborator),
+                operatorDate: Storage.normalizeCode(scan.operatorDate),
+                operatorTime: Storage.normalizeCode(scan.operatorTime),
+                product: Storage.normalizeCode(scan.product),
+                sku: Storage.normalizeCode(scan.sku),
+                ean: Storage.normalizeCode(scan.ean),
+                count: 0
+            };
+
+            existing.count += 1;
+            grouped.set(key, existing);
+        });
+
+        return [...grouped.values()].sort((a, b) => a.product.localeCompare(b.product, 'pt-BR'));
+    },
+
+    exportBipagemReportXLSX() {
+        const rows = this.state.bipagemReportRows.length > 0 ? this.state.bipagemReportRows : this.buildBipagemReportRows();
+
+        if (rows.length === 0) {
+            alert('Nenhuma bipagem registrada nesta sessão.');
+            return;
+        }
+
+        const exportRows = rows.map(row => ({
+            Operador: row.operatorName,
+            Data: row.operatorDate,
+            Hora: row.operatorTime,
+            Produto: row.product,
+            SKU: row.sku,
+            EAN: row.ean,
+            Quantidade: row.count
+        }));
+
+        Utils.createExcelFromData(exportRows, `relatorio_bipagem_${new Date().toISOString().split('T')[0]}.xlsx`);
+    },
+
+    exportBipagemReportCSV() {
+        const rows = this.state.bipagemReportRows.length > 0 ? this.state.bipagemReportRows : this.buildBipagemReportRows();
+
+        if (rows.length === 0) {
+            alert('Nenhuma bipagem registrada nesta sessão.');
+            return;
+        }
+
+        const exportRows = rows.map(row => ({
+            Operador: row.operatorName,
+            Data: row.operatorDate,
+            Hora: row.operatorTime,
+            Produto: row.product,
+            SKU: row.sku,
+            EAN: row.ean,
+            Quantidade: row.count
+        }));
+        const csv = Storage.exportToCSV(exportRows);
+        Storage.downloadCSV(csv, `relatorio_bipagem_${new Date().toISOString().split('T')[0]}.csv`);
+    },
+
+    closeBipagemReportModal() {
+        document.getElementById('bipagem-report-modal').close();
         document.getElementById('barcode-input').focus();
     },
 

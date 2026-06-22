@@ -10,7 +10,7 @@
 <body>
     <div id="app" class="app">
 
-        <!-- ========== TELA DE LOGIN ========== -->
+        <!-- ========== TELA INICIAL ========== -->
         <section id="login-screen" class="screen screen--active">
             <main class="login-main">
                 <article class="login-card">
@@ -19,38 +19,70 @@
                         <p>Sistema de Contagem de Estoque</p>
                     </header>
 
-                    <form id="login-form" class="login-form" novalidate>
+                    <form id="operator-start-form" class="login-form" novalidate>
+                        <div id="operator-message" class="login-message hidden" role="alert" aria-live="assertive"></div>
+
+                        <div class="form-group">
+                            <label for="operator-name-input">Nome do Operador</label>
+                            <input
+                                type="text"
+                                id="operator-name-input"
+                                class="form-input"
+                                placeholder="Ex: Pedro"
+                                required
+                                autofocus
+                                aria-label="Nome do Operador"
+                                autocomplete="name"
+                            >
+                        </div>
+
+                        <button type="submit" class="btn btn--success btn--large">
+                            ✓ Iniciar Inventário
+                        </button>
+                    </form>
+
+                    <div class="login-divider">
+                        <span>Acesso administrativo</span>
+                    </div>
+
+                    <button type="button" id="show-admin-login" class="btn btn--secondary btn--large btn--full">
+                        Entrar como Administrador
+                    </button>
+
+                    <form id="login-form" class="login-form hidden" novalidate>
                         <div id="login-message" class="login-message hidden" role="alert" aria-live="assertive"></div>
 
                         <div class="form-group">
-                            <label for="username-input">Usuário</label>
+                            <label for="username-input">Usuário Administrador</label>
                             <input
                                 type="text"
                                 id="username-input"
                                 class="form-input"
-                                placeholder="Digite seu usuário"
+                                placeholder="Digite admin"
                                 required
-                                autofocus
-                                aria-label="Usuário"
+                                aria-label="Usuário Administrador"
                                 autocomplete="username"
                             >
                         </div>
 
                         <div class="form-group">
-                            <label for="password-input">Senha</label>
+                            <label for="password-input">Senha Administrativa</label>
                             <input
                                 type="password"
                                 id="password-input"
                                 class="form-input"
                                 placeholder="Digite sua senha"
                                 required
-                                aria-label="Senha"
+                                aria-label="Senha Administrativa"
                                 autocomplete="current-password"
                             >
                         </div>
 
                         <button type="submit" class="btn btn--primary btn--large">
-                            Entrar no Sistema
+                            Entrar como Administrador
+                        </button>
+                        <button type="button" id="hide-admin-login" class="btn btn--secondary btn--large btn--full">
+                            Voltar para Início
                         </button>
                     </form>
                 </article>
@@ -167,8 +199,8 @@
                                 type="text"
                                 id="history-filter-input"
                                 class="form-input"
-                                placeholder="🔎 Filtrar por Produto, SKU ou EAN..."
-                                aria-label="Filtrar histórico por Produto, SKU ou EAN"
+                                placeholder="🔎 Filtrar por Produto, SKU, EAN ou Operador..."
+                                aria-label="Filtrar histórico por Produto, SKU, EAN ou Operador"
                                 autocomplete="off"
                             >
                         </div>
@@ -533,8 +565,8 @@
                             </article>
                             <article class="info-card">
                                 <h3>Usuários Iniciais</h3>
-                                <p>Supervisor: admin / 123456</p>
-                                <p>Operador: operador / 123456</p>
+                                <p>Administrador: admin / 123456</p>
+                                <p>Operadores: qualquer nome válido (mínimo 3 caracteres).</p>
                             </article>
                             <article class="info-card">
                                 <h3>Persistência</h3>

@@ -171,6 +171,28 @@ body {
     flex-direction: column;
 }
 
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin: var(--spacing-xl) 0;
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+}
+
+.login-divider::before,
+.login-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--color-border);
+}
+
+.btn--full {
+    width: 100%;
+    margin-bottom: var(--spacing-md);
+}
+
 .form-group {
     margin-bottom: var(--spacing-xl);
 }

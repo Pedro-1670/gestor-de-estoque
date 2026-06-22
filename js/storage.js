@@ -1,9 +1,6 @@
 /**
  * SISTEMA DE INVENTÁRIO INTELIGENTE
  * storage.js - Gerenciamento de Dados em LocalStorage
- *
- * Este módulo gerencia toda a persistência de dados da aplicação,
- * incluindo produtos, registros de bipagem e dados de sessão.
  */
 
 const Storage = {
@@ -14,7 +11,9 @@ const Storage = {
         CURRENT_SESSION: 'current_session',
         COLLABORATORS: 'inventory_collaborators',
         MOVEMENTS: 'inventory_movements',
-        AUTH_SESSION: 'inventory_auth_session'
+        AUTH_SESSION: 'inventory_auth_session',
+        OPERATOR_SESSION: 'inventory_operator_session',
+        SETTINGS: 'inventory_settings'
     },
 
     USERS: {
@@ -22,27 +21,18 @@ const Storage = {
             username: 'admin',
             password: '123456',
             role: 'supervisor',
-            name: 'Supervisor'
-        },
-        joao: {
-            username: 'joao',
-            password: '123456',
-            role: 'operator',
-            name: 'Joao'
-        },
-        maria: {
-            username: 'maria',
-            password: '123456',
-            role: 'operator',
-            name: 'Maria'
-        },
-        carlos: {
-            username: 'carlos',
-            password: '123456',
-            role: 'operator',
-            name: 'Carlos'
+            name: 'Admin'
         }
     },
+
+    DEFAULT_CONTEXT: {
+        company: 'Empresa Matriz',
+        branch: 'Filial 01',
+        unit: 'Unidade Principal'
+    },
+
+    productCodeCache: new Map(),
+    productListCache: null,
 
     init() {
         if (!this.getProducts()) {
@@ -57,10 +47,17 @@ const Storage = {
         if (!this.getMovements()) {
             this.saveMovements([]);
         }
+        if (!this.getSessions()) {
+            this.saveSessions([]);
+        }
+        if (!this.getSettings()) {
+            this.saveSettings({ ...this.DEFAULT_CONTEXT });
+        }
     },
 
     validateCredentials(username, password) {
-        const user = this.USERS[String(username || '').trim().toLowerCase()];
+        const normalizedUsername = String(username || '').trim().toLowerCase();
+        const user = this.USERS[normalizedUsername];
 
         if (!user || user.password !== String(password || '')) {
             return null;
@@ -110,6 +107,41 @@ const Storage = {
         localStorage.removeItem(this.KEYS.AUTH_SESSION);
     },
 
+    saveOperatorSession(operatorSession) {
+        localStorage.setItem(this.KEYS.OPERATOR_SESSION, JSON.stringify(operatorSession));
+    },
+
+    getOperatorSession() {
+        const data = localStorage.getItem(this.KEYS.OPERATOR_SESSION);
+
+        if (!data) {
+            return null;
+        }
+
+        try {
+            const parsed = JSON.parse(data);
+            if (!parsed?.name) {
+                this.clearOperatorSession();
+                return null;
+            }
+
+            return {
+                name: this.normalizeCode(parsed.name),
+                role: parsed.role || 'operator',
+                date: parsed.date || new Date().toLocaleDateString('pt-BR'),
+                time: parsed.time || new Date().toLocaleTimeString('pt-BR'),
+                startedAt: parsed.startedAt || parsed.startTime || new Date().toISOString()
+            };
+        } catch (error) {
+            this.clearOperatorSession();
+            return null;
+        }
+    },
+
+    clearOperatorSession() {
+        localStorage.removeItem(this.KEYS.OPERATOR_SESSION);
+    },
+
     getProducts() {
         const data = localStorage.getItem(this.KEYS.PRODUCTS);
 
@@ -126,18 +158,58 @@ const Storage = {
         }
     },
 
+    getProductsCached() {
+        if (this.productListCache === null) {
+            this.buildProductCache();
+        }
+
+        return this.productListCache || [];
+    },
+
     saveProducts(products) {
-        const normalizedProducts = Array.isArray(products) ? products.map(product => this.normalizeProduct(product)) : [];
+        const normalizedProducts = Array.isArray(products) ? products.map(product => this.normalizeProduct(product)).filter(Boolean) : [];
         localStorage.setItem(this.KEYS.PRODUCTS, JSON.stringify(normalizedProducts));
+        this.invalidateProductCache();
         return normalizedProducts;
     },
 
     addProduct(product) {
-        const products = this.getProducts();
+        const products = this.getProductsCached();
         const normalizedProduct = this.normalizeProduct(product);
+
+        if (!normalizedProduct) {
+            return products;
+        }
+
         const exists = products.some(existingProduct => this.productSharesCode(existingProduct, normalizedProduct));
 
         if (!exists) {
+            products.push(normalizedProduct);
+            this.saveProducts(products);
+        } else {
+            this.saveProducts(products);
+        }
+
+        return products;
+    },
+
+    updateProduct(product) {
+        const products = this.getProductsCached();
+        const normalizedProduct = this.normalizeProduct(product);
+
+        if (!normalizedProduct) {
+            return products;
+        }
+
+        const index = products.findIndex(existingProduct => this.productSharesCode(existingProduct, normalizedProduct));
+
+        if (index >= 0) {
+            products[index] = {
+                ...products[index],
+                ...normalizedProduct
+            };
+            this.saveProducts(products);
+        } else {
             products.push(normalizedProduct);
             this.saveProducts(products);
         }
@@ -145,24 +217,53 @@ const Storage = {
         return products;
     },
 
-    getProduct(codigo) {
-        codigo = String(codigo).trim();
+    invalidateProductCache() {
+        this.productCodeCache = new Map();
+        this.productListCache = null;
+    },
 
-        if (!codigo) {
+    buildProductCache() {
+        const products = this.getProducts();
+        const codeMap = new Map();
+
+        products.forEach(product => {
+            this.getProductCodeFields(product).forEach(code => {
+                codeMap.set(this.normalizeCacheKey(code), product);
+            });
+        });
+
+        this.productCodeCache = codeMap;
+        this.productListCache = products;
+        return products;
+    },
+
+    getProduct(codigo) {
+        const code = this.normalizeCacheKey(codigo);
+
+        if (!code) {
             return undefined;
         }
 
-        const products = this.getProducts() || [];
+        if (this.productCodeCache.size === 0 && this.productListCache === null) {
+            this.buildProductCache();
+        }
 
-        return products.find(product =>
-            String(product.EAN || '').trim() === codigo ||
-            String(product.SKU || '').trim() === codigo ||
-            String(product.Barcode || '').trim() === codigo ||
-            String(product.QRCode || '').trim() === codigo ||
-            String(product.Codigo || '').trim() === codigo ||
-            String(product.Código || '').trim() === codigo ||
-            String(product.CodigoProduto || '').trim() === codigo
-        );
+        const cachedProduct = this.productCodeCache.get(code);
+
+        if (cachedProduct) {
+            return cachedProduct;
+        }
+
+        return this.getProducts().find(product => this.productMatchesCode(product, codigo));
+    },
+
+    normalizeCacheKey(value) {
+        return this.normalizeCode(value).toLowerCase();
+    },
+
+    productMatchesCode(product, codigo) {
+        const code = this.normalizeCacheKey(codigo);
+        return this.getProductCodeFields(product).some(productCode => this.normalizeCacheKey(productCode) === code);
     },
 
     normalizeCode(value) {
@@ -172,8 +273,9 @@ const Storage = {
     normalizeProduct(product = {}) {
         const source = product || {};
         const normalized = { ...source };
-        const codeKeys = ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto'];
-        const textKeys = ['Produto', 'Nome', 'Categoria', 'Category', 'Localizacao', 'Localização', 'Local', 'Location'];
+        const codeKeys = ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto', 'cProd'];
+        const textKeys = ['Produto', 'Nome', 'Categoria', 'Category', 'Localizacao', 'Localização', 'Local', 'Location', 'ClasseABC', 'ABC', 'ClassificacaoABC', 'ClassificaçãoABC'];
+        const minStockKeys = ['EstoqueMinimo', 'EstoqueMínimo', 'EstoqueMin', 'Minimo', 'Mínimo', 'StockMin'];
 
         codeKeys.forEach(key => {
             if (normalized[key] !== undefined && normalized[key] !== null) {
@@ -188,8 +290,25 @@ const Storage = {
         });
 
         const stock = this.normalizeStock(normalized.Estoque ?? normalized.Stock);
+        const minStock = this.normalizeStock(normalized.EstoqueMinimo ?? normalized.EstoqueMínimo ?? normalized.EstMin ?? normalized.StockMin);
+        const abc = this.getField(normalized, 'ClasseABC', 'ABC', 'ClassificacaoABC', 'ClassificaçãoABC') || 'Não informada';
+
         normalized.Estoque = stock;
         normalized.Stock = stock;
+        normalized.EstoqueMinimo = minStock;
+        normalized.EstoqueMínimo = minStock;
+        normalized.EstoqueMin = minStock;
+        normalized.StockMin = minStock;
+        normalized.ClasseABC = abc;
+        normalized.ABC = abc;
+        normalized.ClassificacaoABC = abc;
+        normalized.ClassificaçãoABC = abc;
+
+        const codigoProduto = this.getField(normalized, 'CodigoProduto', 'cProd');
+        if (codigoProduto) {
+            normalized.CodigoProduto = codigoProduto;
+            normalized.cProd = codigoProduto;
+        }
 
         return normalized;
     },
@@ -236,7 +355,7 @@ const Storage = {
     },
 
     getProductDisplayName(product) {
-        return this.getField(product, 'Produto', 'Nome') || 'Produto sem nome';
+        return this.getField(product, 'Produto', 'Nome', 'description') || 'Produto sem nome';
     },
 
     getProductCategory(product) {
@@ -244,7 +363,7 @@ const Storage = {
     },
 
     getProductPrimaryCode(product) {
-        return this.getField(product, 'EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código');
+        return this.getField(product, 'EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto', 'cProd');
     },
 
     getProductStock(product) {
@@ -258,7 +377,7 @@ const Storage = {
     },
 
     getProductMinStock(product) {
-        const stock = product?.EstoqueMinimo ?? product?.EstoqueMin ?? product?.EstoqueMínimo ?? product?.Minimo ?? product?.Mínimo ?? product?.StockMin;
+        const stock = product?.EstoqueMinimo ?? product?.EstoqueMínimo ?? product?.EstoqueMin ?? product?.Minimo ?? product?.Mínimo ?? product?.StockMin;
 
         if (stock === undefined || stock === null || stock === '') {
             return '0';
@@ -267,14 +386,32 @@ const Storage = {
         return String(stock).trim();
     },
 
+    getProductABC(product) {
+        return this.getField(product, 'ClasseABC', 'ABC', 'ClassificacaoABC', 'ClassificaçãoABC') || 'Não informada';
+    },
+
     getProductLocation(product) {
         return this.getField(product, 'Localizacao', 'Localização', 'Local', 'Location') || 'Não informada';
     },
 
     getProductCodeFields(product) {
-        return ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto']
+        return ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto', 'cProd']
             .map(key => this.normalizeCode(product?.[key]))
             .filter(Boolean);
+    },
+
+    getProductSearchText(product) {
+        return [
+            this.getProductDisplayName(product),
+            this.normalizeCode(product?.SKU),
+            this.normalizeCode(product?.EAN),
+            this.normalizeCode(product?.Barcode),
+            this.normalizeCode(product?.Codigo),
+            this.normalizeCode(product?.Código),
+            this.normalizeCode(product?.CodigoProduto),
+            this.getProductCategory(product),
+            this.getProductLocation(product)
+        ].join(' ').toLowerCase();
     },
 
     productSharesCode(firstProduct, secondProduct) {
@@ -285,7 +422,7 @@ const Storage = {
     },
 
     getScanPrimaryCode(scan = {}) {
-        return this.getField(scan, 'ean', 'sku', 'barcode', 'code', 'codigo', 'QRCode', 'Codigo');
+        return this.getField(scan, 'ean', 'sku', 'barcode', 'code', 'codigo', 'CodigoProduto', 'QRCode', 'Codigo', 'Código');
     },
 
     getScans() {
@@ -294,7 +431,7 @@ const Storage = {
     },
 
     saveScans(scans) {
-        localStorage.setItem(this.KEYS.SCANS, JSON.stringify(scans));
+        localStorage.setItem(this.KEYS.SCANS, JSON.stringify(Array.isArray(scans) ? scans : []));
     },
 
     addScan(scan) {
@@ -306,6 +443,18 @@ const Storage = {
         });
         this.saveScans(scans);
         return scans;
+    },
+
+    removeScan(scanId) {
+        const scans = this.getScans() || [];
+        const filteredScans = scans.filter(scan => scan.id !== scanId);
+        this.saveScans(filteredScans);
+        return filteredScans;
+    },
+
+    getRecentScans(limit = 5) {
+        const scans = this.getScans() || [];
+        return [...scans].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, limit);
     },
 
     getMovements() {
@@ -357,10 +506,14 @@ const Storage = {
 
     createSession(sessionData) {
         const sessions = this.getSessions() || [];
+        const settings = this.getSettings();
         const session = {
             id: this.generateId(),
             startTime: new Date().toISOString(),
             endTime: null,
+            company: sessionData?.company || settings?.company || this.DEFAULT_CONTEXT.company,
+            branch: sessionData?.branch || settings?.branch || this.DEFAULT_CONTEXT.branch,
+            unit: sessionData?.unit || settings?.unit || this.DEFAULT_CONTEXT.unit,
             ...sessionData
         };
         sessions.push(session);
@@ -381,6 +534,9 @@ const Storage = {
             session.itemsScanned = sessionData.itemsScanned;
             session.uniqueProducts = sessionData.uniqueProducts;
             session.scans = sessionData.scans;
+            session.company = sessionData.company || session.company;
+            session.branch = sessionData.branch || session.branch;
+            session.unit = sessionData.unit || session.unit;
 
             const sessions = this.getSessions() || [];
             const index = sessions.findIndex(s => s.id === session.id);
@@ -416,6 +572,30 @@ const Storage = {
         return collaborators;
     },
 
+    removeCollaborator(name) {
+        const collaborators = this.getCollaborators().filter(collaborator => collaborator !== name);
+        localStorage.setItem(this.KEYS.COLLABORATORS, JSON.stringify(collaborators));
+        return collaborators;
+    },
+
+    getSettings() {
+        const data = localStorage.getItem(this.KEYS.SETTINGS);
+
+        if (!data) {
+            return null;
+        }
+
+        try {
+            return JSON.parse(data);
+        } catch (error) {
+            return null;
+        }
+    },
+
+    saveSettings(settings) {
+        localStorage.setItem(this.KEYS.SETTINGS, JSON.stringify(settings));
+    },
+
     generateId() {
         return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     },
@@ -428,12 +608,15 @@ const Storage = {
         localStorage.removeItem(this.KEYS.COLLABORATORS);
         localStorage.removeItem(this.KEYS.MOVEMENTS);
         localStorage.removeItem(this.KEYS.AUTH_SESSION);
+        localStorage.removeItem(this.KEYS.OPERATOR_SESSION);
+        localStorage.removeItem(this.KEYS.SETTINGS);
+        this.invalidateProductCache();
     },
 
     getStatistics() {
         const scans = this.getScans() || [];
         const sessions = this.getSessions() || [];
-        const products = this.getProducts() || [];
+        const products = this.getProductsCached();
         const movements = this.getMovements() || [];
 
         const uniqueCollaborators = [...new Set(scans.map(s => this.normalizeCode(s.collaborator)).filter(Boolean))];
@@ -471,6 +654,7 @@ const Storage = {
             avgTimePerScan,
             productivityByCollaborator,
             uniqueCollaborators,
+            uniqueProductsScanned,
             scans,
             sessions,
             movements,
@@ -480,7 +664,7 @@ const Storage = {
 
     getDiscrepancies() {
         const scans = this.getScans() || [];
-        const products = this.getProducts() || [];
+        const products = this.getProductsCached();
         const scannedCounts = {};
 
         scans.forEach(scan => {
@@ -526,31 +710,38 @@ const Storage = {
 
     getNotInventoriedProducts() {
         const scans = this.getScans() || [];
-        const products = this.getProducts() || [];
+        const products = this.getProductsCached();
         const scannedCodes = new Set(scans.map(scan => this.getScanPrimaryCode(scan)).filter(Boolean));
 
         return products.filter(product => !scannedCodes.has(this.getProductPrimaryCode(product)));
     },
 
     exportToCSV(data, filename = 'inventario.csv') {
-        let csv = '';
-
-        if (data.length > 0) {
-            const headers = Object.keys(data[0]);
-            csv += headers.join(',') + '\n';
-
-            data.forEach(row => {
-                const values = headers.map(header => {
-                    const value = row[header];
-                    return typeof value === 'string' && value.includes(',')
-                        ? `"${value.replace(/"/g, '""')}"`
-                        : value;
-                });
-                csv += values.join(',') + '\n';
-            });
+        if (!Array.isArray(data) || data.length === 0) {
+            return '';
         }
 
-        return csv;
+        const headers = Object.keys(data[0]);
+        const rows = [
+            headers.join(','),
+            ...data.map(row => headers.map(header => this.escapeCSVValue(row[header])).join(','))
+        ];
+
+        return `\ufeff${rows.join('\n')}\n`;
+    },
+
+    escapeCSVValue(value) {
+        if (value === undefined || value === null) {
+            return '';
+        }
+
+        const text = String(value);
+
+        if (/[",\n\r]/.test(text)) {
+            return `"${text.replace(/"/g, '""')}"`;
+        }
+
+        return text;
     },
 
     downloadCSV(csv, filename) {

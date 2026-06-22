@@ -282,6 +282,62 @@ const Utils = {
         });
     },
 
+    parseXMLNFeFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+
+            reader.onload = (event) => {
+                try {
+                    const xml = event.target.result;
+                    const parser = new DOMParser();
+                    const document = parser.parseFromString(xml, 'application/xml');
+                    const parserError = document.querySelector('parsererror');
+
+                    if (parserError) {
+                        reject(new Error('XML inválido ou com estrutura incompatível.'));
+                        return;
+                    }
+
+                    const items = [...document.getElementsByTagName('det')]
+                        .map(det => this.normalizeXMLItem(det))
+                        .filter(item => item.codigoProduto || item.ean || item.description);
+
+                    console.log('Arquivo XML lido:', file.name, 'Itens:', items.length);
+                    console.table(items.slice(0, 50));
+                    resolve(items);
+                } catch (error) {
+                    reject(error);
+                }
+            };
+
+            reader.onerror = () => reject(new Error('Erro ao ler arquivo XML'));
+            reader.readAsText(file, 'utf-8');
+        });
+    },
+
+    normalizeXMLItem(det) {
+        const getValue = (tagName) => {
+            const node = det.getElementsByTagName(tagName)[0];
+            return node ? node.textContent.trim() : '';
+        };
+
+        const codigoProduto = getValue('cProd');
+        const ean = getValue('cEAN');
+        const description = getValue('xProd');
+        const quantity = getValue('qCom');
+        const unitValue = getValue('vUnCom');
+        const totalValue = getValue('vProd');
+
+        return {
+            codigoProduto,
+            ean,
+            description,
+            quantity,
+            unitValue,
+            totalValue
+        };
+    },
+
     normalizeExcelRow(row = {}) {
         const normalized = {};
 
