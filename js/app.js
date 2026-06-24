@@ -1661,15 +1661,15 @@ const App = {
         const file = files[0];
 
         try {
-            const items = await Utils.parseXMLNFeFile(file);
+            const { items, nfInfo } = await Utils.parseXMLNFeFile(file);
             
             if (!items || items.length === 0) {
                 alert('Nenhum item válido encontrado no XML.');
                 return;
             }
 
-            this.state.pendingXMLImport = { items, fileName: file.name };
-            this.showXMLImportPreview(items);
+            this.state.pendingXMLImport = { items, nfInfo, fileName: file.name };
+            this.showXMLImportPreview(items, nfInfo);
 
         } catch (error) {
             console.error('Erro ao importar XML:', error);
@@ -1677,7 +1677,7 @@ const App = {
         }
     },
 
-    showXMLImportPreview(items) {
+    showXMLImportPreview(items, nfInfo) {
         const status = document.getElementById('xml-import-status');
         const preview = document.getElementById('xml-import-preview');
         const previewBody = document.getElementById('xml-import-preview-body');
@@ -1690,9 +1690,9 @@ const App = {
         status.innerHTML = `
             <div><strong>${items.length}</strong> itens encontrados no XML</div>
             <div style="margin-top: 5px; font-size: 0.9rem;">
-                Fornecedor: <strong>${items[0]?.fornecedorName || 'N/A'}</strong><br>
-                NF: <strong>${items[0]?.nfNumber || 'N/A'}</strong> | Série: <strong>${items[0]?.serie || 'N/A'}</strong><br>
-                Data: <strong>${items[0]?.emitDate || 'N/A'}</strong>
+                Fornecedor: <strong>${nfInfo.fornecedor}</strong><br>
+                NF: <strong>${nfInfo.numeroNF}</strong> | Série: <strong>${nfInfo.serie}</strong><br>
+                Data: <strong>${nfInfo.dataEmissao}</strong>
             </div>
             <div style="margin-top: 10px; font-weight: bold; color: #28a745;">
                 ✓ NF-e carregada com sucesso
@@ -1724,7 +1724,7 @@ const App = {
     confirmXMLImport() {
         if (!this.state.pendingXMLImport) return;
 
-        const { items } = this.state.pendingXMLImport;
+        const { items, nfInfo } = this.state.pendingXMLImport;
         let productsCreated = 0;
         let productsUpdated = 0;
 
@@ -1736,10 +1736,10 @@ const App = {
                 Estoque: item.quantity,
                 vUnCom: item.unitValue,
                 vProd: item.totalValue,
-                nfNumber: item.nfNumber,
-                serie: item.serie,
-                emitDate: item.emitDate,
-                fornecedorName: item.fornecedorName
+                nfNumber: nfInfo.numeroNF,
+                serie: nfInfo.serie,
+                emitDate: nfInfo.dataEmissao,
+                fornecedorName: nfInfo.fornecedor
             };
 
             if (Storage.getProduct(item.codigoProduto) || Storage.getProduct(item.ean)) {

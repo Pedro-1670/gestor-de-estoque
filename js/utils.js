@@ -290,21 +290,36 @@ const Utils = {
                 try {
                     const xml = event.target.result;
                     const parser = new DOMParser();
-                    const document = parser.parseFromString(xml, 'application/xml');
-                    const parserError = document.querySelector('parsererror');
+                    const xmlDoc = parser.parseFromString(xml, 'application/xml');
+                    const parserError = xmlDoc.querySelector('parsererror');
 
                     if (parserError) {
                         reject(new Error('XML inválido ou com estrutura incompatível.'));
                         return;
                     }
 
-                    const items = [...document.getElementsByTagName('det')]
+                    const items = [...xmlDoc.getElementsByTagName('det')]
                         .map(det => this.normalizeXMLItem(det))
                         .filter(item => item.codigoProduto || item.ean || item.description);
 
+                    const emit = xmlDoc.getElementsByTagName('emit')[0];
+                    const ide = xmlDoc.getElementsByTagName('ide')[0];
+
+                    const fornecedor = emit ? this.getNodeValue(emit, 'xNome') : '';
+                    const numeroNF = ide ? this.getNodeValue(ide, 'nNF') : '';
+                    const serie = ide ? this.getNodeValue(ide, 'serie') : '';
+                    const dataEmissao = ide ? this.getNodeValue(ide, 'dhEmi') : '';
+
+                    const nfInfo = {
+                        fornecedor: fornecedor || '-',
+                        numeroNF: numeroNF || '-',
+                        serie: serie || '-',
+                        dataEmissao: dataEmissao || '-'
+                    };
+
                     console.log('Arquivo XML lido:', file.name, 'Itens:', items.length);
                     console.table(items.slice(0, 50));
-                    resolve(items);
+                    resolve({ items, nfInfo });
                 } catch (error) {
                     reject(error);
                 }
@@ -313,6 +328,11 @@ const Utils = {
             reader.onerror = () => reject(new Error('Erro ao ler arquivo XML'));
             reader.readAsText(file, 'utf-8');
         });
+    },
+
+    getNodeValue(parent, tagName) {
+        const node = parent.getElementsByTagName(tagName)[0];
+        return node ? node.textContent.trim() : '';
     },
 
     normalizeXMLItem(det) {
