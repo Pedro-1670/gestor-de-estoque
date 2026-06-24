@@ -324,9 +324,9 @@ const Utils = {
         const codigoProduto = getValue('cProd');
         const ean = getValue('cEAN');
         const description = getValue('xProd');
-        const quantity = getValue('qCom');
-        const unitValue = getValue('vUnCom');
-        const totalValue = getValue('vProd');
+        const quantity = Number(getValue('qCom') || 0);
+        const unitValue = Number(getValue('vUnCom') || 0);
+        const totalValue = Number(getValue('vProd') || 0);
 
         return {
             codigoProduto,

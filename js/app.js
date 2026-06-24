@@ -114,6 +114,10 @@ const App = {
         document.getElementById('finish-bipagem')?.addEventListener('click', () => this.showBipagemReportModal());
         document.getElementById('finish-inventory')?.addEventListener('click', () => this.finishInventory());
 
+        // Supervisor - Relatórios por Colaborador
+        document.getElementById('report-collaborator-filter')?.addEventListener('change', () => this.updateCollaboratorReportSummary());
+        document.getElementById('generate-collaborator-report')?.addEventListener('click', () => this.generateCollaboratorReportPDF());
+
         // Supervisor - Navegação de tabs
         document.querySelectorAll('.nav-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.handleTabSwitch(e));
@@ -124,6 +128,8 @@ const App = {
         document.getElementById('confirm-import')?.addEventListener('click', () => this.confirmImport());
         document.getElementById('cancel-import')?.addEventListener('click', () => this.cancelImport());
         document.getElementById('xml-file-input')?.addEventListener('change', (e) => this.handleXMLFileUpload(e));
+        document.getElementById('confirm-xml-import')?.addEventListener('click', () => this.confirmXMLImport());
+        document.getElementById('cancel-xml-import')?.addEventListener('click', () => this.cancelXMLImport());
 
         // Supervisor - Exportação
         document.querySelectorAll('[data-export-current]').forEach(btn => {
@@ -139,14 +145,15 @@ const App = {
         // Relatório de bipagem
         document.getElementById('export-bipagem-xlsx')?.addEventListener('click', () => this.exportBipagemReportXLSX());
         document.getElementById('export-bipagem-csv')?.addEventListener('click', () => this.exportBipagemReportCSV());
+        document.getElementById('export-bipagem-pdf')?.addEventListener('click', () => this.exportBipagemReportPDF());
         document.getElementById('close-bipagem-report')?.addEventListener('click', () => this.closeBipagemReportModal());
+        
+        
 
         // Supervisor - Filtros
         document.getElementById('apply-filters')?.addEventListener('click', () => this.applyFilters());
 
-        // Modal
-        document.getElementById('finish-return-login')?.addEventListener('click', () => this.handleLogout());
-        document.getElementById('finish-continue')?.addEventListener('click', () => this.closeFinishModal());
+        
 
         // Drag and drop para importação XLSX
         const importArea = document.querySelector('.import-area:not(.xml-import-area)');
@@ -275,11 +282,16 @@ const App = {
 
         Storage.clearAuthSession();
         Storage.clearOperatorSession();
+        Storage.clearCurrentSession();
         document.getElementById('login-form').reset();
         document.getElementById('operator-start-form').reset();
         this.hideLoginMessage();
         this.hideOperatorMessage();
-        this.showOperatorStartForm();
+        this.showScreen('login-screen');
+        setTimeout(() => {
+            const nameInput = document.getElementById('operator-name-input');
+            if (nameInput) nameInput.focus();
+        }, 100);
     },
 
     restoreAuthSession() {
@@ -327,7 +339,8 @@ const App = {
         }
 
         this.showScreen('login-screen');
-        document.getElementById('operator-name-input').focus();
+        const nameInput = document.getElementById('operator-name-input');
+        if (nameInput) nameInput.focus();
     },
 
     showAdminLoginForm() {
@@ -458,6 +471,43 @@ const App = {
         this.resetBarcodeInput();
     },
 
+    getCurrentBipagemType() {
+        const selected = document.querySelector('input[name="bipagem-type"]:checked');
+        return selected ? selected.value : 'unit';
+    },
+
+    showBipagemTypeSelector(product) {
+        const selector = document.getElementById('bipagem-type-selector');
+        const optionCaixa = document.getElementById('option-caixa');
+        const optionMalote = document.getElementById('option-malote');
+        const boxQty = document.getElementById('box-qty');
+        const bundleQty = document.getElementById('bundle-qty');
+        
+        const qtyPerBox = Number(Storage.normalizeCode(product.QuantidadePorCaixa || product.QtdPorCaixa || 0));
+        const qtyPerBundle = Number(Storage.normalizeCode(product.QuantidadePorMalote || product.QtdPorMalote || 0));
+        
+        if (qtyPerBox > 0) {
+            optionCaixa.style.display = 'inline-flex';
+            boxQty.textContent = qtyPerBox;
+        } else {
+            optionCaixa.style.display = 'none';
+        }
+        
+        if (qtyPerBundle > 0) {
+            optionMalote.style.display = 'inline-flex';
+            bundleQty.textContent = qtyPerBundle;
+        } else {
+            optionMalote.style.display = 'none';
+        }
+        
+        const hasMultiple = qtyPerBox > 0 || qtyPerBundle > 0;
+        if (hasMultiple) {
+            Utils.show(selector);
+        } else {
+            Utils.hide(selector);
+        }
+    },
+
     resetBarcodeInput() {
         const barcodeInput = document.getElementById('barcode-input');
         barcodeInput.value = "";
@@ -545,6 +595,8 @@ const App = {
     },
 
     loadProductForBipagem(product) {
+        this.showBipagemTypeSelector(product);
+        
         const scan = {
             product: Storage.getProductDisplayName(product),
             sku: Storage.normalizeCode(product.SKU),
@@ -560,6 +612,16 @@ const App = {
 
     recordScan(product, codigo = '') {
         const now = new Date();
+        const bipagemType = this.getCurrentBipagemType();
+        const qtyPerBox = Number(Storage.normalizeCode(product.QuantidadePorCaixa || product.QtdPorCaixa || 0));
+        const qtyPerBundle = Number(Storage.normalizeCode(product.QuantidadePorMalote || product.QtdPorMalote || 0));
+        
+        let quantity = 1;
+        if (bipagemType === 'box' && qtyPerBox > 0) {
+            quantity = qtyPerBox;
+        } else if (bipagemType === 'bundle' && qtyPerBundle > 0) {
+            quantity = qtyPerBundle;
+        }
 
         const scan = {
             collaborator: this.state.currentOperatorName || this.state.currentUser,
@@ -573,18 +635,20 @@ const App = {
             stock: Storage.getProductStock(product),
             category: Storage.getProductCategory(product),
             timestamp: now.toISOString(),
-            time: now.toLocaleTimeString('pt-BR')
+            time: now.toLocaleTimeString('pt-BR'),
+            bipagemType: bipagemType,
+            quantity: quantity
         };
 
         Storage.addScan(scan);
         this.state.sessionScans.push(scan);
 
-        this.showProductInfo(product, scan);
+        this.showProductInfo(product, scan, bipagemType, quantity);
         this.updateOperatorDashboard();
         this.updateHistoryTable();
     },
 
-    showProductInfo(product, scan) {
+    showProductInfo(product, scan, bipagemType = null, quantity = 1) {
         const productInfo = document.getElementById('product-info');
         const productName = document.getElementById('product-name');
         const productSKU = document.getElementById('product-sku');
@@ -671,7 +735,6 @@ const App = {
                 <td>${scan.product}</td>
                 <td>${scan.sku}</td>
                 <td>${Storage.normalizeCode(scan.ean)}</td>
-                <td>${scan.collaborator}</td>
                 <td>
                     <button class="btn btn--secondary btn--small btn-remove-scan" aria-label="Remover bipagem do produto ${scan.product}">
                         Remover
@@ -744,24 +807,50 @@ const App = {
         const duration = Math.floor((endTime - this.state.sessionStartTime) / 1000);
         const uniqueProducts = new Set(this.state.sessionScans.map(s => Storage.getScanPrimaryCode(s)).filter(Boolean)).size;
 
-        // Preencher modal
-        document.getElementById('summary-collaborator').textContent = this.state.currentUser;
-        document.getElementById('summary-start-time').textContent = this.state.sessionStartTime.toLocaleTimeString('pt-BR');
-        document.getElementById('summary-end-time').textContent = endTime.toLocaleTimeString('pt-BR');
-        document.getElementById('summary-total-time').textContent = Utils.formatTime(duration);
-        document.getElementById('summary-items').textContent = this.state.sessionScans.length;
-        document.getElementById('summary-unique').textContent = uniqueProducts;
+        if (this.state.currentSession) {
+            Storage.endSession({
+                itemsScanned: this.state.sessionScans.length,
+                uniqueProducts: uniqueProducts,
+                scans: this.state.sessionScans
+            });
+        }
 
-        // Mostrar modal nativo
-        document.getElementById('finish-modal').showModal();
+        Storage.saveOperatorSessionData({
+            collaborator: this.state.currentOperatorName,
+            date: this.state.currentOperatorDate,
+            time: this.state.currentOperatorTime,
+            duration: duration,
+            itemsScanned: this.state.sessionScans.length,
+            uniqueProducts: uniqueProducts,
+            scans: this.state.sessionScans
+        });
 
-        // Parar timer
-        clearInterval(this.state.sessionTimer);
+        this.clearOperatorSessionState();
+        this.handleLogout();
     },
 
-    closeFinishModal() {
-        document.getElementById('finish-modal').close();
-        document.getElementById('barcode-input').focus();
+    clearOperatorSessionState() {
+        this.state.sessionScans = [];
+        this.state.currentSession = null;
+        this.state.sessionTimer = null;
+        this.state.sessionScans = [];
+        
+        const productInfo = document.getElementById('product-info');
+        if (productInfo) Utils.hide(productInfo);
+        
+        const barcodeInput = document.getElementById('barcode-input');
+        if (barcodeInput) barcodeInput.value = '';
+        
+        const emptyHistory = document.getElementById('empty-history');
+        if (emptyHistory) Utils.show(emptyHistory);
+        
+        const historyBody = document.getElementById('history-body');
+        if (historyBody) historyBody.innerHTML = '';
+        
+        const totalItems = document.getElementById('total-items');
+        const uniqueProducts = document.getElementById('unique-products');
+        if (totalItems) totalItems.textContent = '0';
+        if (uniqueProducts) uniqueProducts.textContent = '0';
     },
 
     showBipagemReportModal() {
@@ -819,50 +908,385 @@ const App = {
     },
 
     exportBipagemReportXLSX() {
-        const rows = this.state.bipagemReportRows.length > 0 ? this.state.bipagemReportRows : this.buildBipagemReportRows();
-
-        if (rows.length === 0) {
-            alert('Nenhuma bipagem registrada nesta sessão.');
-            return;
+        const tab = document.querySelector('.tab-btn.active')?.dataset?.tab || 'consolidated';
+        
+        if (tab === 'consolidated') {
+            const rows = this.state.bipagemReportRows.length > 0 ? this.state.bipagemReportRows : this.buildBipagemReportRows();
+            if (rows.length === 0) {
+                alert('Nenhuma bipagem registrada nesta sessão.');
+                return;
+            }
+            const exportRows = rows.map(row => ({
+                Operador: row.operatorName,
+                Data: row.operatorDate,
+                Hora: row.operatorTime,
+                Produto: row.product,
+                SKU: row.sku,
+                EAN: row.ean,
+                Quantidade: row.count
+            }));
+            Utils.createExcelFromData(exportRows, `relatorio_bipagem_${new Date().toISOString().split('T')[0]}.xlsx`);
+        } else {
+            const selectedCollaborator = document.getElementById('collaborator-filter').value;
+            const scans = selectedCollaborator 
+                ? this.state.sessionScans.filter(s => s.collaborator === selectedCollaborator)
+                : this.state.sessionScans;
+            
+            if (scans.length === 0) {
+                alert('Nenhuma bipagem registrada para este colaborador.');
+                return;
+            }
+            
+            const grouped = new Map();
+            scans.forEach(scan => {
+                const key = `${Storage.normalizeCode(scan.ean)}|${Storage.normalizeCode(scan.sku)}|${Storage.normalizeCode(scan.product)}`;
+                const existing = grouped.get(key);
+                if (existing) {
+                    existing.count += 1;
+                } else {
+                    grouped.set(key, {
+                        product: Storage.normalizeCode(scan.product),
+                        sku: Storage.normalizeCode(scan.sku),
+                        ean: Storage.normalizeCode(scan.ean),
+                        count: 1,
+                        operatorName: Storage.normalizeCode(scan.collaborator)
+                    });
+                }
+            });
+            
+            const exportRows = [...grouped.values()].map(row => ({
+                Operador: selectedCollaborator || row.operatorName,
+                Produto: row.product,
+                SKU: row.sku,
+                EAN: row.ean,
+                Quantidade: row.count
+            }));
+            
+            Utils.createExcelFromData(exportRows, `relatorio_${selectedCollaborator || 'colaborador'}_${new Date().toISOString().split('T')[0]}.xlsx`);
         }
-
-        const exportRows = rows.map(row => ({
-            Operador: row.operatorName,
-            Data: row.operatorDate,
-            Hora: row.operatorTime,
-            Produto: row.product,
-            SKU: row.sku,
-            EAN: row.ean,
-            Quantidade: row.count
-        }));
-
-        Utils.createExcelFromData(exportRows, `relatorio_bipagem_${new Date().toISOString().split('T')[0]}.xlsx`);
     },
 
     exportBipagemReportCSV() {
-        const rows = this.state.bipagemReportRows.length > 0 ? this.state.bipagemReportRows : this.buildBipagemReportRows();
-
-        if (rows.length === 0) {
-            alert('Nenhuma bipagem registrada nesta sessão.');
-            return;
+        const tab = document.querySelector('.tab-btn.active')?.dataset?.tab || 'consolidated';
+        
+        if (tab === 'consolidated') {
+            const rows = this.state.bipagemReportRows.length > 0 ? this.state.bipagemReportRows : this.buildBipagemReportRows();
+            if (rows.length === 0) {
+                alert('Nenhuma bipagem registrada nesta sessão.');
+                return;
+            }
+            const exportRows = rows.map(row => ({
+                Operador: row.operatorName,
+                Data: row.operatorDate,
+                Hora: row.operatorTime,
+                Produto: row.product,
+                SKU: row.sku,
+                EAN: row.ean,
+                Quantidade: row.count
+            }));
+            const csv = Storage.exportToCSV(exportRows);
+            Storage.downloadCSV(csv, `relatorio_bipagem_${new Date().toISOString().split('T')[0]}.csv`);
+        } else {
+            const selectedCollaborator = document.getElementById('collaborator-filter').value;
+            const scans = selectedCollaborator 
+                ? this.state.sessionScans.filter(s => s.collaborator === selectedCollaborator)
+                : this.state.sessionScans;
+            
+            if (scans.length === 0) {
+                alert('Nenhuma bipagem registrada para este colaborador.');
+                return;
+            }
+            
+            const grouped = new Map();
+            scans.forEach(scan => {
+                const key = `${Storage.normalizeCode(scan.ean)}|${Storage.normalizeCode(scan.sku)}|${Storage.normalizeCode(scan.product)}`;
+                const existing = grouped.get(key);
+                if (existing) {
+                    existing.count += 1;
+                } else {
+                    grouped.set(key, {
+                        product: Storage.normalizeCode(scan.product),
+                        sku: Storage.normalizeCode(scan.sku),
+                        ean: Storage.normalizeCode(scan.ean),
+                        count: 1,
+                        operatorName: Storage.normalizeCode(scan.collaborator)
+                    });
+                }
+            });
+            
+            const exportRows = [...grouped.values()].map(row => ({
+                Operador: selectedCollaborator || row.operatorName,
+                Produto: row.product,
+                SKU: row.sku,
+                EAN: row.ean,
+                Quantidade: row.count
+            }));
+            
+            const csv = Storage.exportToCSV(exportRows);
+            Storage.downloadCSV(csv, `relatorio_${selectedCollaborator || 'colaborador'}_${new Date().toISOString().split('T')[0]}.csv`);
         }
-
-        const exportRows = rows.map(row => ({
-            Operador: row.operatorName,
-            Data: row.operatorDate,
-            Hora: row.operatorTime,
-            Produto: row.product,
-            SKU: row.sku,
-            EAN: row.ean,
-            Quantidade: row.count
-        }));
-        const csv = Storage.exportToCSV(exportRows);
-        Storage.downloadCSV(csv, `relatorio_bipagem_${new Date().toISOString().split('T')[0]}.csv`);
     },
 
     closeBipagemReportModal() {
         document.getElementById('bipagem-report-modal').close();
         document.getElementById('barcode-input').focus();
+    },
+
+    switchReportTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.add('hidden'));
+        
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+        
+        if (tabName === 'by-collaborator') {
+            this.populateCollaboratorFilter();
+            this.renderCollaboratorReports();
+        }
+    },
+
+    populateCollaboratorFilter() {
+        const filter = document.getElementById('collaborator-filter');
+        const collaborators = [...new Set(this.state.sessionScans.map(s => s.collaborator).filter(Boolean))];
+        filter.innerHTML = '<option value="">Todos os Colaboradores</option>';
+        collaborators.forEach(collab => {
+            const option = document.createElement('option');
+            option.value = collab;
+            option.textContent = collab;
+            filter.appendChild(option);
+        });
+    },
+
+    renderCollaboratorReports() {
+        const filter = document.getElementById('collaborator-filter');
+        const container = document.getElementById('collaborator-reports-container');
+        const selectedCollaborator = filter.value;
+        
+        let scans = this.state.sessionScans;
+        if (selectedCollaborator) {
+            scans = scans.filter(s => s.collaborator === selectedCollaborator);
+        }
+        
+        const grouped = new Map();
+        scans.forEach(scan => {
+            const key = `${Storage.normalizeCode(scan.ean)}|${Storage.normalizeCode(scan.sku)}|${Storage.normalizeCode(scan.product)}`;
+            const existing = grouped.get(key);
+            if (existing) {
+                existing.count += 1;
+            } else {
+                grouped.set(key, {
+                    product: Storage.normalizeCode(scan.product),
+                    sku: Storage.normalizeCode(scan.sku),
+                    ean: Storage.normalizeCode(scan.ean),
+                    count: 1
+                });
+            }
+        });
+        
+        container.innerHTML = '';
+        
+        if (selectedCollaborator) {
+            const collaboratorScans = this.state.sessionScans.filter(s => s.collaborator === selectedCollaborator);
+            const uniqueCollaborators = [...new Set(collaboratorScans.map(s => s.collaborator))];
+            
+            uniqueCollaborators.forEach(collab => {
+                const collabScans = collaboratorScans.filter(s => s.collaborator === collab);
+                const collabGrouped = new Map();
+                collabScans.forEach(scan => {
+                    const key = `${Storage.normalizeCode(scan.ean)}|${Storage.normalizeCode(scan.sku)}|${Storage.normalizeCode(scan.product)}`;
+                    const existing = collabGrouped.get(key);
+                    if (existing) {
+                        existing.count += 1;
+                    } else {
+                        collabGrouped.set(key, {
+                            product: Storage.normalizeCode(scan.product),
+                            sku: Storage.normalizeCode(scan.sku),
+                            ean: Storage.normalizeCode(scan.ean),
+                            count: 1
+                        });
+                    }
+                });
+                
+                const section = document.createElement('div');
+                section.style.marginBottom = '20px';
+                section.style.border = '1px solid #ddd';
+                section.style.borderRadius = '5px';
+                section.style.padding = '10px';
+                
+                let tableHTML = `
+                    <h4 style="margin-top: 0; margin-bottom: 10px;">${collab}: ${collabGrouped.size} produto(s)</h4>
+                    <table class="bipagem-report-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Produto</th>
+                                <th>SKU</th>
+                                <th>Quantidade</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                [...collabGrouped.values()].forEach(row => {
+                    tableHTML += `
+                        <tr>
+                            <td>${row.product}</td>
+                            <td>${row.sku || row.ean || 'Não informado'}</td>
+                            <td style="text-align: right;">${row.count}</td>
+                        </tr>
+                    `;
+                });
+                
+                tableHTML += '</tbody></table>';
+                section.innerHTML = tableHTML;
+                container.appendChild(section);
+            });
+        } else {
+            const collaborators = [...new Set(scans.map(s => s.collaborator))];
+            collaborators.forEach(collab => {
+                const collabScans = scans.filter(s => s.collaborator === collab);
+                const collabGrouped = new Map();
+                collabScans.forEach(scan => {
+                    const key = `${Storage.normalizeCode(scan.ean)}|${Storage.normalizeCode(scan.sku)}|${Storage.normalizeCode(scan.product)}`;
+                    const existing = collabGrouped.get(key);
+                    if (existing) {
+                        existing.count += 1;
+                    } else {
+                        collabGrouped.set(key, {
+                            product: Storage.normalizeCode(scan.product),
+                            sku: Storage.normalizeCode(scan.sku),
+                            ean: Storage.normalizeCode(scan.ean),
+                            count: 1
+                        });
+                    }
+                });
+                
+                const section = document.createElement('div');
+                section.style.marginBottom = '20px';
+                section.style.border = '1px solid #ddd';
+                section.style.borderRadius = '5px';
+                section.style.padding = '10px';
+                
+                let tableHTML = `
+                    <h4 style="margin-top: 0; margin-bottom: 10px;">${collab}: ${collabGrouped.size} produto(s)</h4>
+                    <table class="bipagem-report-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Produto</th>
+                                <th>SKU</th>
+                                <th>Quantidade</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                [...collabGrouped.values()].forEach(row => {
+                    tableHTML += `
+                        <tr>
+                            <td>${row.product}</td>
+                            <td>${row.sku || row.ean || 'Não informado'}</td>
+                            <td style="text-align: right;">${row.count}</td>
+                        </tr>
+                    `;
+                });
+                
+                tableHTML += '</tbody></table>';
+                section.innerHTML = tableHTML;
+                container.appendChild(section);
+            });
+        }
+    },
+
+    exportBipagemReportPDF() {
+        const rows = this.state.bipagemReportRows.length > 0 ? this.state.bipagemReportRows : this.buildBipagemReportRows();
+        if (rows.length === 0) {
+            alert('Nenhuma bipagem registrada nesta sessão.');
+            return;
+        }
+        
+        const element = this.createConsolidatedReportElement(rows);
+        const opt = {
+            margin: 10,
+            filename: `relatorio_bipagem_${new Date().toISOString().split('T')[0]}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
+        };
+        html2pdf().set(opt).from(element).save();
+    },
+
+    createConsolidatedReportElement(rows) {
+        const element = document.createElement('div');
+        element.innerHTML = `
+            <h1>Relatório Consolidado de Bipagem</h1>
+            <p>Data: ${new Date().toLocaleDateString('pt-BR')}</p>
+            <p>Total de Itens: ${rows.reduce((sum, r) => sum + r.count, 0)}</p>
+            <p>Produtos Únicos: ${rows.length}</p>
+            <table border="1" cellpadding="5" style="width: 100%; margin-top: 20px;">
+                <thead>
+                    <tr>
+                        <th>Produto</th>
+                        <th>SKU</th>
+                        <th>Quantidade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map(r => `
+                        <tr>
+                            <td>${r.product}</td>
+                            <td>${r.sku || r.ean || 'Não informado'}</td>
+                            <td style="text-align: right;">${r.count}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+        return element;
+    },
+
+    createCollaboratorReportElement(scans, collaborator) {
+        const grouped = new Map();
+        scans.forEach(scan => {
+            const key = `${Storage.normalizeCode(scan.ean)}|${Storage.normalizeCode(scan.sku)}|${Storage.normalizeCode(scan.product)}`;
+            const existing = grouped.get(key);
+            if (existing) {
+                existing.count += 1;
+            } else {
+                grouped.set(key, {
+                    product: Storage.normalizeCode(scan.product),
+                    sku: Storage.normalizeCode(scan.sku),
+                    ean: Storage.normalizeCode(scan.ean),
+                    count: 1
+                });
+            }
+        });
+        
+        const element = document.createElement('div');
+        element.innerHTML = `
+            <h1>Relatório por Colaborador</h1>
+            <p>Data: ${new Date().toLocaleDateString('pt-BR')}</p>
+            ${collaborator ? `<p>Colaborador: ${collaborator}</p>` : ''}
+            <p>Total de Itens: ${scans.length}</p>
+            <p>Produtos Únicos: ${grouped.size}</p>
+            <table border="1" cellpadding="5" style="width: 100%; margin-top: 20px;">
+                <thead>
+                    <tr>
+                        <th>Produto</th>
+                        <th>SKU</th>
+                        <th>Quantidade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${[...grouped.values()].map(r => `
+                        <tr>
+                            <td>${r.product}</td>
+                            <td>${r.sku || r.ean || 'Não informado'}</td>
+                            <td style="text-align: right;">${r.count}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+        return element;
     },
 
     /**
@@ -927,6 +1351,9 @@ const App = {
                 break;
             case 'import':
                 this.updateImportTab();
+                break;
+            case 'reports':
+                this.updateReportsTab();
                 break;
         }
     },
@@ -1072,6 +1499,272 @@ const App = {
     updateImportTab() {
         const products = Storage.getProducts() || [];
         document.getElementById('current-products-count').textContent = `${products.length} produtos`;
+    },
+
+    updateReportsTab() {
+        const collaborators = Storage.getCollaborators() || [];
+        const filter = document.getElementById('report-collaborator-filter');
+        const currentValue = filter.value;
+        
+        filter.innerHTML = '<option value="">Selecione um colaborador</option>';
+        collaborators.forEach(collab => {
+            const option = document.createElement('option');
+            option.value = collab;
+            option.textContent = collab;
+            filter.appendChild(option);
+        });
+        
+        if (currentValue && collaborators.includes(currentValue)) {
+            filter.value = currentValue;
+        }
+        
+        this.updateCollaboratorReportSummary();
+    },
+
+    updateCollaboratorReportSummary() {
+        const filter = document.getElementById('report-collaborator-filter');
+        const summary = document.getElementById('collaborator-report-summary');
+        const selectedCollaborator = filter.value;
+        
+        if (!selectedCollaborator) {
+            summary.innerHTML = '';
+            return;
+        }
+        
+        const scans = Storage.getScans() || [];
+        const collaboratorScans = scans.filter(s => s.collaborator === selectedCollaborator);
+        
+        if (collaboratorScans.length === 0) {
+            summary.innerHTML = `<p>Nenhuma bipagem encontrada para <strong>${selectedCollaborator}</strong>.</p>`;
+            return;
+        }
+        
+        const uniqueProducts = new Set(collaboratorScans.map(s => Storage.getScanPrimaryCode(s)).filter(Boolean)).size;
+        
+        summary.innerHTML = `
+            <div class="report-summary-info">
+                <p><strong>Colaborador:</strong> ${selectedCollaborator}</p>
+                <p><strong>Total de Bipagens:</strong> ${collaboratorScans.length}</p>
+                <p><strong>Produtos Únicos:</strong> ${uniqueProducts}</p>
+            </div>
+        `;
+    },
+
+    generateCollaboratorReportPDF() {
+        const filter = document.getElementById('report-collaborator-filter');
+        const selectedCollaborator = filter.value;
+        
+        if (!selectedCollaborator) {
+            alert('Selecione um colaborador para gerar o relatório.');
+            return;
+        }
+        
+        const scans = Storage.getScans() || [];
+        const collaboratorScans = scans.filter(s => s.collaborator === selectedCollaborator);
+        
+        if (collaboratorScans.length === 0) {
+            alert('Nenhuma bipagem encontrada para este colaborador.');
+            return;
+        }
+        
+        const grouped = new Map();
+        collaboratorScans.forEach(scan => {
+            const key = `${Storage.normalizeCode(scan.ean)}|${Storage.normalizeCode(scan.sku)}|${Storage.normalizeCode(scan.product)}`;
+            const existing = grouped.get(key);
+            if (existing) {
+                existing.count += 1;
+            } else {
+                grouped.set(key, {
+                    product: Storage.normalizeCode(scan.product),
+                    sku: Storage.normalizeCode(scan.sku),
+                    ean: Storage.normalizeCode(scan.ean),
+                    count: 1,
+                    time: scan.time,
+                    date: scan.operatorDate
+                });
+            }
+        });
+        
+        const element = this.createCollaboratorPDFReportElement(selectedCollaborator, [...grouped.values()], collaboratorScans);
+        document.body.appendChild(element);
+        
+        const opt = {
+            margin: 10,
+            filename: `relatorio_${selectedCollaborator}_${new Date().toISOString().split('T')[0]}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
+        };
+        html2pdf().set(opt).from(element).save().then(() => {
+            document.body.removeChild(element);
+        });
+    },
+
+    createCollaboratorPDFReportElement(collaborator, groupedItems, scans) {
+        const totalItems = scans.length;
+        const uniqueProducts = groupedItems.length;
+        const duration = this.calculateSessionDuration(scans);
+        
+        const element = document.createElement('div');
+        element.innerHTML = `
+            <h1>Relatório por Colaborador</h1>
+            <div style="margin-bottom: 20px;">
+                <p><strong>Nome do Colaborador:</strong> ${collaborator}</p>
+                <p><strong>Data:</strong> ${scans[0]?.operatorDate || new Date().toLocaleDateString('pt-BR')}</p>
+                <p><strong>Tempo de Inventário:</strong> ${duration}</p>
+                <p><strong>Itens Bipados:</strong> ${totalItems}</p>
+                <p><strong>Produtos Únicos:</strong> ${uniqueProducts}</p>
+            </div>
+            <table border="1" cellpadding="5" style="width: 100%; margin-top: 20px;">
+                <thead>
+                    <tr>
+                        <th>Produto</th>
+                        <th>SKU</th>
+                        <th>EAN</th>
+                        <th>Quantidade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${groupedItems.map(item => `
+                        <tr>
+                            <td>${item.product}</td>
+                            <td>${item.sku || '-'}</td>
+                            <td>${item.ean || '-'}</td>
+                            <td style="text-align: right;">${item.count}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+        return element;
+    },
+
+    calculateSessionDuration(scans) {
+        if (scans.length === 0) return '00:00:00';
+        
+        const times = scans.map(s => new Date(s.timestamp)).sort((a, b) => a - b);
+        const start = times[0];
+        const end = times[times.length - 1];
+        const duration = Math.floor((end - start) / 1000);
+        
+        const hrs = Math.floor(duration / 3600);
+        const mins = Math.floor((duration % 3600) / 60);
+        const secs = duration % 60;
+        
+        return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    },
+
+    async handleXMLFileUpload(event) {
+        const files = event.target.files;
+        if (!files || files.length === 0) return;
+
+        const file = files[0];
+
+        try {
+            const items = await Utils.parseXMLNFeFile(file);
+            
+            if (!items || items.length === 0) {
+                alert('Nenhum item válido encontrado no XML.');
+                return;
+            }
+
+            this.state.pendingXMLImport = { items, fileName: file.name };
+            this.showXMLImportPreview(items);
+
+        } catch (error) {
+            console.error('Erro ao importar XML:', error);
+            alert('Erro ao importar XML: ' + error.message);
+        }
+    },
+
+    showXMLImportPreview(items) {
+        const status = document.getElementById('xml-import-status');
+        const preview = document.getElementById('xml-import-preview');
+        const previewBody = document.getElementById('xml-import-preview-body');
+
+        status.innerHTML = '';
+        previewBody.innerHTML = '';
+
+        Utils.removeClass(status, 'hidden');
+        status.className = 'import-result success';
+        status.innerHTML = `
+            <div><strong>${items.length}</strong> itens encontrados no XML</div>
+            <div style="margin-top: 5px; font-size: 0.9rem;">
+                Fornecedor: <strong>${items[0]?.fornecedorName || 'N/A'}</strong><br>
+                NF: <strong>${items[0]?.nfNumber || 'N/A'}</strong> | Série: <strong>${items[0]?.serie || 'N/A'}</strong><br>
+                Data: <strong>${items[0]?.emitDate || 'N/A'}</strong>
+            </div>
+            <div style="margin-top: 10px; font-weight: bold; color: #28a745;">
+                ✓ NF-e carregada com sucesso
+            </div>
+        `;
+
+        items.slice(0, 10).forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${item.codigoProduto || '-'}</td>
+                <td>${item.ean || '-'}</td>
+                <td>${item.description || '-'}</td>
+                <td style="text-align: right;">${item.quantity}</td>
+                <td style="text-align: right;">${item.unitValue.toFixed(2)}</td>
+                <td style="text-align: right;">${item.totalValue.toFixed(2)}</td>
+            `;
+            previewBody.appendChild(tr);
+        });
+
+        if (items.length > 10) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td colspan="6" style="text-align: center; font-style: italic;">... e mais ${items.length - 10} itens</td>`;
+            previewBody.appendChild(tr);
+        }
+
+        Utils.removeClass(preview, 'hidden');
+    },
+
+    confirmXMLImport() {
+        if (!this.state.pendingXMLImport) return;
+
+        const { items } = this.state.pendingXMLImport;
+        let productsCreated = 0;
+        let productsUpdated = 0;
+
+        items.forEach(item => {
+            const product = {
+                Produto: item.description,
+                SKU: item.codigoProduto,
+                EAN: item.ean,
+                Estoque: item.quantity,
+                vUnCom: item.unitValue,
+                vProd: item.totalValue,
+                nfNumber: item.nfNumber,
+                serie: item.serie,
+                emitDate: item.emitDate,
+                fornecedorName: item.fornecedorName
+            };
+
+            if (Storage.getProduct(item.codigoProduto) || Storage.getProduct(item.ean)) {
+                Storage.updateProduct(product);
+                productsUpdated++;
+            } else {
+                Storage.addProduct(product);
+                productsCreated++;
+            }
+        });
+
+        document.getElementById('xml-import-status').classList.add('hidden');
+        document.getElementById('xml-import-preview').classList.add('hidden');
+        document.getElementById('xml-file-input').value = '';
+        
+        alert(`Importação concluída!\n${productsCreated} produtos criados\n${productsUpdated} produtos atualizados`);
+        
+        this.state.pendingXMLImport = null;
+    },
+
+    cancelXMLImport() {
+        document.getElementById('xml-import-status').classList.add('hidden');
+        document.getElementById('xml-import-preview').classList.add('hidden');
+        document.getElementById('xml-file-input').value = '';
+        this.state.pendingXMLImport = null;
     },
 
     /**

@@ -187,6 +187,21 @@
                             </div>
                         </article>
 
+                        <div class="bipagem-type-selector hidden" id="bipagem-type-selector">
+                            <p style="margin-bottom: 8px; font-weight: 500;">Tipo de Bipagem:</p>
+                            <div class="bipagem-options">
+                                <label class="radio-option">
+                                    <input type="radio" name="bipagem-type" value="unit" checked> Unidade
+                                </label>
+                                <label class="radio-option" id="option-caixa" style="display: none;">
+                                    <input type="radio" name="bipagem-type" value="box"> Caixa (<span id="box-qty"></span>)
+                                </label>
+                                <label class="radio-option" id="option-malote" style="display: none;">
+                                    <input type="radio" name="bipagem-type" value="bundle"> Malote (<span id="bundle-qty"></span>)
+                                </label>
+                            </div>
+                        </div>
+
                         <!-- Mensagem de Erro -->
                         <div id="error-message" class="error-message hidden" role="alert" aria-live="assertive"></div>
                     </section>
@@ -199,8 +214,8 @@
                                 type="text"
                                 id="history-filter-input"
                                 class="form-input"
-                                placeholder="🔎 Filtrar por Produto, SKU, EAN ou Operador..."
-                                aria-label="Filtrar histórico por Produto, SKU, EAN ou Operador"
+                                placeholder="🔎 Filtrar por Produto, SKU ou EAN..."
+                                aria-label="Filtrar histórico por Produto, SKU ou EAN"
                                 autocomplete="off"
                             >
                         </div>
@@ -218,7 +233,6 @@
                                         <th>Produto</th>
                                         <th>SKU</th>
                                         <th>EAN</th>
-                                        <th>Operador</th>
                                         <th>Ação</th>
                                     </tr>
                                 </thead>
@@ -528,6 +542,14 @@
                                         </tbody>
                                     </table>
                                 </div>
+                                <div class="import-actions">
+                                    <button id="confirm-xml-import" class="btn btn--success btn--large" aria-label="Confirmar importação dos produtos">
+                                        ✓ Confirmar Importação
+                                    </button>
+                                    <button id="cancel-xml-import" class="btn btn--secondary btn--large" aria-label="Cancelar importação">
+                                        ✗ Cancelar
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </section>
@@ -538,18 +560,35 @@
                     <section class="reports-section">
                         <h2>📑 Relatórios</h2>
                         <p class="section-info">Exporte produtos, bipagens e relatórios operacionais do inventário.</p>
-                        <div id="report-summary" class="report-summary" aria-live="polite"></div>
-                        <div class="export-actions">
-                            <button class="btn btn--primary btn--small" data-export-current aria-label="Exportar produtos para Excel">
-                                📥 Exportar Excel
-                            </button>
-                            <button class="btn btn--primary btn--small" data-export-csv aria-label="Exportar dados para CSV">
-                                📄 Exportar CSV
-                            </button>
-                            <button class="btn btn--primary btn--small" data-export-pdf aria-label="Exportar relatório em PDF">
-                                📑 Exportar PDF
-                            </button>
-                        </div>
+                        
+                        <section class="collaborator-reports">
+                            <h3>📊 Relatórios por Colaborador</h3>
+                            <p class="section-info">Gere relatórios individuais para cada colaborador.</p>
+                            <div class="filter-controls">
+                                <select id="report-collaborator-filter" class="form-select">
+                                    <option value="">Selecione um colaborador</option>
+                                </select>
+                                <button id="generate-collaborator-report" class="btn btn--primary btn--small" aria-label="Gerar relatório do colaborador selecionado">
+                                    Gerar Relatório
+                                </button>
+                            </div>
+                            <div id="collaborator-report-summary" class="report-summary" aria-live="polite"></div>
+                        </section>
+                        
+                        <section class="general-reports" style="margin-top: 30px;">
+                            <h3>📋 Relatórios Gerais</h3>
+                            <div class="export-actions">
+                                <button class="btn btn--primary btn--small" data-export-current aria-label="Exportar produtos para Excel">
+                                    📥 Exportar Excel
+                                </button>
+                                <button class="btn btn--primary btn--small" data-export-csv aria-label="Exportar dados para CSV">
+                                    📄 Exportar CSV
+                                </button>
+                                <button class="btn btn--primary btn--small" data-export-pdf aria-label="Exportar relatório em PDF">
+                                    📑 Exportar PDF
+                                </button>
+                            </div>
+                        </section>
                     </section>
                 </section>
 
@@ -578,61 +617,27 @@
             </div>
         </section>
 
-        <!-- ========== MODAL DE FINALIZAÇÃO ========== -->
-        <dialog id="finish-modal" class="modal" aria-labelledby="modal-title">
-            <div class="modal-content">
-                <h2 id="modal-title">✓ Inventário Finalizado</h2>
-                <div class="summary-info">
-                    <dl class="summary-list">
-                        <dt>Colaborador:</dt>
-                        <dd id="summary-collaborator"></dd>
-
-                        <dt>Hora de Início:</dt>
-                        <dd id="summary-start-time"></dd>
-
-                        <dt>Hora de Término:</dt>
-                        <dd id="summary-end-time"></dd>
-
-                        <dt>Tempo Total:</dt>
-                        <dd id="summary-total-time"></dd>
-
-                        <dt class="highlight">Itens Contados:</dt>
-                        <dd id="summary-items" class="highlight"></dd>
-
-                        <dt class="highlight">Produtos Únicos:</dt>
-                        <dd id="summary-unique" class="highlight"></dd>
-                    </dl>
-                </div>
-                <div class="modal-actions">
-                    <button id="finish-return-login" class="btn btn--primary btn--large" aria-label="Voltar para a tela de login">
-                        ← Voltar para Login
-                    </button>
-                    <button id="finish-continue" class="btn btn--secondary btn--large" aria-label="Continuar escaneando produtos">
-                        ▶ Continuar Contando
-                    </button>
-                </div>
-            </div>
-        </dialog>
-
         <!-- ========== MODAL RELATÓRIO DE BIPAGEM ========== -->
         <dialog id="bipagem-report-modal" class="modal modal--wide" aria-labelledby="bipagem-report-title">
             <div class="modal-content">
-                <h2 id="bipagem-report-title">Relatório Consolidado de Bipagem</h2>
-                <p class="section-info">Relatório agrupado por produto, SKU e quantidade bipada nesta sessão.</p>
-
-                <div class="table-responsive">
-                    <table id="bipagem-report-table" class="bipagem-report-table">
-                        <caption>Produto, SKU e Quantidade</caption>
-                        <thead>
-                            <tr>
-                                <th>Produto</th>
-                                <th>SKU</th>
-                                <th>Quantidade</th>
-                            </tr>
-                        </thead>
-                        <tbody id="bipagem-report-body">
-                        </tbody>
-                    </table>
+                <h2 id="bipagem-report-title">Relatório de Bipagem</h2>
+                
+                <div id="report-consolidated" class="tab-panel active">
+                    <p class="section-info">Relatório agrupado por produto, SKU e quantidade bipada nesta sessão.</p>
+                    <div class="table-responsive">
+                        <table id="bipagem-report-table" class="bipagem-report-table">
+                            <caption>Produto, SKU e Quantidade</caption>
+                            <thead>
+                                <tr>
+                                    <th>Produto</th>
+                                    <th>SKU</th>
+                                    <th>Quantidade</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bipagem-report-body">
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div class="modal-actions">
@@ -641,6 +646,9 @@
                     </button>
                     <button id="export-bipagem-csv" class="btn btn--primary btn--large" aria-label="Exportar relatório de bipagem em CSV">
                         📄 Exportar CSV
+                    </button>
+                    <button id="export-bipagem-pdf" class="btn btn--primary btn--large" aria-label="Exportar relatório de bipagem em PDF">
+                        📑 Exportar PDF
                     </button>
                     <button id="close-bipagem-report" class="btn btn--secondary btn--large" aria-label="Voltar para bipagem">
                         ← Voltar à Bipagem
