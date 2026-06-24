@@ -19,11 +19,13 @@ const App = {
         sessionTimer: null,
         pendingImport: null,
         pendingXMLImport: null,
-        bipagemReportRows: []
+        bipagemReportRows: [],
+        conferenceItems: [],
+        conferenceSession: null
     },
 
     permissions: {
-        supervisor: ['dashboard', 'history', 'divergences', 'not-inventoried', 'import', 'import-xml', 'reports', 'config'],
+        supervisor: ['dashboard', 'history', 'divergences', 'not-inventoried', 'import', 'import-xml', 'conference', 'reports', 'config'],
         operator: ['bipagem', 'history']
     },
 
@@ -180,6 +182,11 @@ const App = {
                 }
             });
         }
+
+        // Conference mode
+        document.getElementById('start-conf-btn')?.addEventListener('click', () => this.startConference());
+        document.getElementById('conf-barcode-input')?.addEventListener('keypress', (e) => this.handleConferenceScan(e));
+        document.getElementById('finish-conf-btn')?.addEventListener('click', () => this.finishConference());
     },
 
     handleLogin(event) {
@@ -1352,6 +1359,9 @@ const App = {
             case 'import':
                 this.updateImportTab();
                 break;
+            case 'conference':
+                this.updateConferenceTab();
+                break;
             case 'reports':
                 this.updateReportsTab();
                 break;
@@ -1765,6 +1775,141 @@ const App = {
         document.getElementById('xml-import-preview').classList.add('hidden');
         document.getElementById('xml-file-input').value = '';
         this.state.pendingXMLImport = null;
+    },
+
+    /**
+     * CONFERÊNCIA XML
+     */
+
+    updateConferenceTab() {
+        if (this.state.conferenceItems.length === 0) {
+            const body = document.getElementById('conference-body');
+            if (body) body.innerHTML = '';
+            return;
+        }
+
+        const nfInfo = this.state.pendingXMLImport?.nfInfo || {};
+        document.getElementById('conf-fornecedor').textContent = nfInfo.fornecedor || '-';
+        document.getElementById('conf-nf').textContent = nfInfo.numeroNF || '-';
+        document.getElementById('conf-serie').textContent = nfInfo.serie || '-';
+        document.getElementById('conf-data').textContent = nfInfo.dataEmissao || '-';
+
+        this.renderConferenceTable();
+        this.updateConferenceSummary();
+    },
+
+    renderConferenceTable() {
+        const body = document.getElementById('conference-body');
+        if (!body) return;
+
+        body.innerHTML = '';
+
+        this.state.conferenceItems.forEach(item => {
+            const tr = document.createElement('tr');
+            const diff = item.counted - item.expected;
+            let diffColor = '';
+            if (item.counted === 0) diffColor = 'diff-red';
+            else if (diff < 0) diffColor = 'diff-yellow';
+            else if (diff === 0) diffColor = 'diff-green';
+            else diffColor = 'diff-blue';
+
+            tr.innerHTML = `
+                <td>${item.codigoProduto || '-'}</td>
+                <td>${item.ean || '-'}</td>
+                <td>${item.description || '-'}</td>
+                <td style="text-align: right;">${item.expected}</td>
+                <td style="text-align: right;">${item.counted}</td>
+                <td style="text-align: right;" class="${diffColor}">${diff > 0 ? '+' : ''}${diff}</td>
+            `;
+            body.appendChild(tr);
+        });
+    },
+
+    updateConferenceSummary() {
+        const expected = this.state.conferenceItems.reduce((sum, item) => sum + item.expected, 0);
+        const counted = this.state.conferenceItems.reduce((sum, item) => sum + item.counted, 0);
+        const diff = counted - expected;
+
+        document.getElementById('conf-total-expected').textContent = expected;
+        document.getElementById('conf-total-counted').textContent = counted;
+        document.getElementById('conf-total-diff').textContent = diff;
+    },
+
+    startConference() {
+        if (!this.state.pendingXMLImport) {
+            alert('Carregue um XML primeiro.');
+            return;
+        }
+
+        this.state.conferenceItems = this.state.pendingXMLImport.items.map(item => ({
+            codigoProduto: item.codigoProduto,
+            ean: item.ean,
+            description: item.description,
+            expected: item.quantity,
+            counted: 0
+        }));
+
+        this.state.conferenceSession = {
+            startTime: new Date(),
+            operator: this.state.currentOperatorName || this.state.currentUser
+        };
+
+        this.showScreen('supervisor-screen');
+        this.showTab('conference');
+        this.renderConferenceTable();
+        this.updateConferenceSummary();
+
+        const input = document.getElementById('conf-barcode-input');
+        if (input) input.focus();
+    },
+
+    handleConferenceScan(event) {
+        if (!this.state.conferenceSession) return;
+        if (event.key !== 'Enter') return;
+
+        const barcode = event.target.value.trim();
+        if (!barcode) return;
+
+        const item = this.state.conferenceItems.find(i => 
+            i.ean === barcode || i.codigoProduto === barcode
+        );
+
+        if (item) {
+            item.counted += 1;
+            this.renderConferenceTable();
+            this.updateConferenceSummary();
+        }
+
+        event.target.value = '';
+        event.target.focus();
+    },
+
+    finishConference() {
+        if (!this.state.conferenceSession) return;
+
+        const items = this.state.conferenceItems;
+        const expected = items.reduce((sum, i) => sum + i.expected, 0);
+        const counted = items.reduce((sum, i) => sum + i.counted, 0);
+        const diff = counted - expected;
+
+        const report = `Conferência Finalizada\n\n` +
+            `Fornecedor: ${this.state.pendingXMLImport?.nfInfo?.fornecedor || '-'}\n` +
+            `NF: ${this.state.pendingXMLImport?.nfInfo?.numeroNF || '-'}\n` +
+            `Série: ${this.state.pendingXMLImport?.nfInfo?.serie || '-'}\n` +
+            `Data: ${this.state.pendingXMLImport?.nfInfo?.dataEmissao || '-'}\n` +
+            `Operador: ${this.state.conferenceSession.operator}\n\n` +
+            `Total Esperado: ${expected}\n` +
+            `Total Contado: ${counted}\n` +
+            `Diferença: ${diff > 0 ? '+' : ''}${diff}`;
+
+        alert(report);
+
+        this.state.conferenceItems = [];
+        this.state.conferenceSession = null;
+        this.state.pendingXMLImport = null;
+
+        const body = document.getElementById('conference-body');
+        if (body) body.innerHTML = '';
     },
 
     /**

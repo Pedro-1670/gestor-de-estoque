@@ -279,6 +279,7 @@
                 <button class="nav-btn" data-tab="not-inventoried" data-permission="not-inventoried" aria-selected="false">📦 Não Inventariados</button>
                 <button class="nav-btn" data-tab="import" data-permission="import" aria-selected="false">📥 Importação XLSX</button>
                 <button class="nav-btn" data-tab="import-xml" data-permission="import-xml" aria-selected="false">📥 Importação XML</button>
+                <button class="nav-btn" data-tab="conference" data-permission="import-xml" aria-selected="false">📋 Conferência XML</button>
                 <button class="nav-btn" data-tab="reports" data-permission="reports" aria-selected="false">📑 Relatórios</button>
                 <button class="nav-btn" data-tab="config" data-permission="config" aria-selected="false">⚙️ Configurações</button>
             </nav>
@@ -551,6 +552,60 @@
                                     </button>
                                 </div>
                             </div>
+                        </div>
+                    </section>
+                </section>
+
+                <!-- TAB: Conferência XML -->
+                <section id="tab-conference" class="tab-content" aria-label="Conferência de mercadorias">
+                    <section class="conference-section">
+                        <header class="conference-header">
+                            <h2>📋 Conferência de Mercadorias</h2>
+                            <div class="conference-info">
+                                <div class="nf-info">
+                                    <span><strong>Fornecedor:</strong> <span id="conf-fornecedor">-</span></span>
+                                    <span><strong>NF:</strong> <span id="conf-nf">-</span></span>
+                                    <span><strong>Série:</strong> <span id="conf-serie">-</span></span>
+                                    <span><strong>Data:</strong> <span id="conf-data">-</span></span>
+                                </div>
+                            </div>
+                        </header>
+
+                        <div class="conference-controls">
+                            <input type="text" id="conf-barcode-input" class="form-input" placeholder="📷 Escanear EAN ou Código..." autocomplete="off">
+                            <button id="start-conf-btn" class="btn btn--success btn--large" aria-label="Iniciar conferência">
+                                ▶ Iniciar Conferência
+                            </button>
+                        </div>
+
+                        <div class="conference-summary">
+                            <span><strong>Esperado:</strong> <span id="conf-total-expected">0</span></span>
+                            <span><strong>Contado:</strong> <span id="conf-total-counted">0</span></span>
+                            <span><strong>Diferença:</strong> <span id="conf-total-diff">0</span></span>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table id="conference-table" class="conference-table">
+                                <caption>Tabela de conferência de mercadorias</caption>
+                                <thead>
+                                    <tr>
+                                        <th>Código</th>
+                                        <th>EAN</th>
+                                        <th>Produto</th>
+                                        <th>Esperado</th>
+                                        <th>Contado</th>
+                                        <th>Diferença</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="conference-body">
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="conference-actions">
+                            <button id="finish-conf-btn" class="btn btn--primary btn--large" aria-label="Finalizar conferência">
+                                ✓ Finalizar Conferência
+                            </button>
                         </div>
                     </section>
                 </section>

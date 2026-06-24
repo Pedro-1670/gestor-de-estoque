@@ -1361,3 +1361,85 @@ a:focus-visible {
     }
 }
 */
+
+/* ============================================================================
+   CONFERÊNCIA XML
+   ============================================================================ */
+
+.conference-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: var(--color-bg-secondary);
+    border-radius: var(--radius-md);
+}
+
+.nf-info {
+    display: flex;
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+    font-size: 0.9rem;
+}
+
+.conference-controls {
+    margin-bottom: var(--spacing-md);
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: center;
+}
+
+.conference-summary {
+    display: flex;
+    gap: var(--spacing-xl);
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--color-bg-secondary);
+    border-radius: var(--radius-md);
+}
+
+.conference-summary strong {
+    margin-right: var(--spacing-sm);
+}
+
+.conference-table th,
+.conference-table td {
+    padding: var(--spacing-sm);
+    text-align: left;
+}
+
+.conference-table th:nth-child(4),
+.conference-table th:nth-child(5),
+.conference-table th:nth-child(6),
+.conference-table td:nth-child(4),
+.conference-table td:nth-child(5),
+.conference-table td:nth-child(6) {
+    text-align: right;
+}
+
+.diff-red {
+    color: var(--color-danger);
+    font-weight: bold;
+}
+
+.diff-yellow {
+    color: var(--color-warning);
+    font-weight: bold;
+}
+
+.diff-green {
+    color: var(--color-success);
+    font-weight: bold;
+}
+
+.diff-blue {
+    color: #2563eb;
+    font-weight: bold;
+}
+
+.conference-actions {
+    margin-top: var(--spacing-lg);
+    display: flex;
+    justify-content: flex-end;
+}
