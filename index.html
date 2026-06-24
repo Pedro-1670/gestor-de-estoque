@@ -247,9 +247,6 @@
 
                     <!-- Ações do Operador -->
                     <aside class="operator-actions">
-                        <button id="finish-bipagem" class="btn btn--success btn--large" aria-label="Finalizar bipagem e gerar relatório">
-                            ✓ Finalizar Bipagem
-                        </button>
                         <button id="finish-inventory" class="btn btn--primary btn--large" aria-label="Finalizar o inventário atual">
                             ✓ Finalizar Inventário
                         </button>
@@ -275,11 +272,14 @@
             <nav class="supervisor-nav" aria-label="Abas de navegação do supervisor">
                 <button class="nav-btn nav-btn--active" data-tab="dashboard" data-permission="dashboard" aria-selected="true">📊 Dashboard</button>
                 <button class="nav-btn" data-tab="history" data-permission="history" aria-selected="false">📋 Histórico</button>
+                <button class="nav-btn" data-tab="reconciliation" data-permission="reconciliation" aria-selected="false">🔄 Reconciliação</button>
                 <button class="nav-btn" data-tab="divergences" data-permission="divergences" aria-selected="false">⚠️ Divergências</button>
                 <button class="nav-btn" data-tab="not-inventoried" data-permission="not-inventoried" aria-selected="false">📦 Não Inventariados</button>
-                <button class="nav-btn" data-tab="import" data-permission="import" aria-selected="false">📥 Importação XLSX</button>
+                <button class="nav-btn" data-tab="product-catalog" data-permission="product-catalog" aria-selected="false">📋 Catálogo</button>
+                <button class="nav-btn" data-tab="inventory-quantities" data-permission="inventory-quantities" aria-selected="false">📊 Quantidades</button>
+                <button class="nav-btn" data-tab="manual-invoice" data-permission="manual-invoice" aria-selected="false">📝 Nota Manual</button>
+                <button class="nav-btn" data-tab="import" data-permission="import" aria-selected="false">📥 Importação</button>
                 <button class="nav-btn" data-tab="import-xml" data-permission="import-xml" aria-selected="false">📥 Importação XML</button>
-                <button class="nav-btn" data-tab="conference" data-permission="import-xml" aria-selected="false">📋 Conferência XML</button>
                 <button class="nav-btn" data-tab="reports" data-permission="reports" aria-selected="false">📑 Relatórios</button>
                 <button class="nav-btn" data-tab="config" data-permission="config" aria-selected="false">⚙️ Configurações</button>
             </nav>
@@ -436,7 +436,7 @@
                 <!-- TAB: Importar Excel -->
                 <section id="tab-import" class="tab-content" aria-label="Importar e exportar dados">
                     <section class="import-section">
-                        <h2>📥 Importar Base de Produtos</h2>
+                        <h2>📥 Importação de Dados</h2>
 
                         <div class="import-area">
                             <input
@@ -448,8 +448,23 @@
                             >
                             <label for="excel-file-input" class="file-label">
                                 <div class="file-icon">📄</div>
-                                <p><strong>Clique aqui ou arraste um arquivo Excel</strong></p>
-                                <span>Suporta .xlsx e .xls</span>
+                                <p><strong>[Import Product Catalog]</strong></p>
+                                <span>Suporta .xlsx e .xls - Colunas: Store, SKU, Description, Brand, Group, Subgroup, Unit, EAN</span>
+                            </label>
+                        </div>
+
+                        <div class="import-area" style="margin-top: 20px;">
+                            <input
+                                type="file"
+                                id="inventory-qty-file-input"
+                                accept=".xlsx,.xls"
+                                class="file-input"
+                                aria-label="Selecione arquivo Excel para importar quantidades"
+                            >
+                            <label for="inventory-qty-file-input" class="file-label">
+                                <div class="file-icon">📄</div>
+                                <p><strong>[Import Inventory Quantities]</strong></p>
+                                <span>Colunas: SKU ou EAN, Expected Quantity</span>
                             </label>
                         </div>
 
@@ -613,8 +628,8 @@
                 <!-- TAB: Relatórios -->
                 <section id="tab-reports" class="tab-content" aria-label="Relatórios">
                     <section class="reports-section">
-                        <h2>📑 Relatórios</h2>
-                        <p class="section-info">Exporte produtos, bipagens e relatórios operacionais do inventário.</p>
+                        <h2>📑 Centro de Relatórios</h2>
+                        <p class="section-info">Gere relatórios detalhados do inventário.</p>
                         
                         <section class="collaborator-reports">
                             <h3>📊 Relatórios por Colaborador</h3>
@@ -633,17 +648,232 @@
                         <section class="general-reports" style="margin-top: 30px;">
                             <h3>📋 Relatórios Gerais</h3>
                             <div class="export-actions">
-                                <button class="btn btn--primary btn--small" data-export-current aria-label="Exportar produtos para Excel">
-                                    📥 Exportar Excel
+                                <button id="export-inventory-summary" class="btn btn--primary btn--small" aria-label="Exportar resumo do inventário">
+                                    📥 Resumo do Inventário
                                 </button>
-                                <button class="btn btn--primary btn--small" data-export-csv aria-label="Exportar dados para CSV">
-                                    📄 Exportar CSV
+                                <button id="export-divergence-report" class="btn btn--primary btn--small" aria-label="Exportar relatório de divergências">
+                                    ⚠️ Divergências
                                 </button>
-                                <button class="btn btn--primary btn--small" data-export-pdf aria-label="Exportar relatório em PDF">
-                                    📑 Exportar PDF
+                                <button id="export-history-report" class="btn btn--primary btn--small" aria-label="Exportar histórico completo">
+                                    📋 Histórico Completo
                                 </button>
                             </div>
                         </section>
+
+                        <section class="general-reports" style="margin-top: 30px;">
+                            <h3>📤 Exportações</h3>
+                            <div class="export-actions">
+                                <button class="btn btn--primary btn--small" data-export-current aria-label="Exportar produtos para Excel">
+                                    📥 Produtos Excel
+                                </button>
+                                <button class="btn btn--primary btn--small" data-export-csv aria-label="Exportar dados para CSV">
+                                    📄 Dados CSV
+                                </button>
+                                <button class="btn btn--primary btn--small" data-export-pdf aria-label="Exportar relatório em PDF">
+                                    📑 Relatório PDF
+                                </button>
+                            </div>
+                        </section>
+                    </section>
+                </section>
+
+                <!-- TAB: Product Catalog -->
+                <section id="tab-product-catalog" class="tab-content" aria-label="Catálogo de Produtos">
+                    <section class="import-section">
+                        <h2>📋 Catálogo de Produtos</h2>
+                        <p class="section-info">Base de dados com informações dos produtos para identificação durante a bipagem.</p>
+                        
+                        <div class="import-area">
+                            <input
+                                type="file"
+                                id="product-catalog-file-input"
+                                accept=".xlsx,.xls,.csv"
+                                class="file-input"
+                                aria-label="Selecione arquivo para importar catálogo de produtos"
+                            >
+                            <label for="product-catalog-file-input" class="file-label">
+                                <div class="file-icon">📄</div>
+                                <p><strong>[Import Product Catalog]</strong></p>
+                                <span>Colunas: Store, SKU, Description, Brand, Group, Subgroup, Unit, EAN</span>
+                            </label>
+                        </div>
+
+                        <div class="section-controls" style="margin-top: 20px;">
+                            <button id="connect-gsheets-catalog" class="btn btn--primary btn--small" aria-label="Conectar Google Sheets">
+                                🔗 Conectar Google Sheet
+                            </button>
+                            <button id="sync-gsheets-catalog" class="btn btn--success btn--small" aria-label="Sincronizar agora">
+                                🔄 Sincronizar Agora
+                            </button>
+                            <span id="gsheets-catalog-status" style="margin-left: 10px; font-size: 0.9rem;"></span>
+                        </div>
+
+                        <section class="current-products" style="margin-top: 20px;">
+                            <h3>📋 Produtos no Catálogo</h3>
+                            <p id="catalog-count" class="section-info">0 produtos</p>
+                            <div class="table-responsive">
+                                <table id="catalog-table" class="preview-table">
+                                    <thead>
+                                        <tr>
+                                            <th>SKU</th>
+                                            <th>EAN</th>
+                                            <th>Produto</th>
+                                            <th>Marca</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="catalog-body"></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </section>
+                </section>
+
+                <!-- TAB: Inventory Quantities -->
+                <section id="tab-inventory-quantities" class="tab-content" aria-label="Quantidades de Estoque">
+                    <section class="import-section">
+                        <h2>📊 Quantidades de Estoque</h2>
+                        <p class="section-info">Quantidades esperadas para reconciliação do inventário.</p>
+                        
+                        <div class="import-area">
+                            <input
+                                type="file"
+                                id="inventory-qty-file-input"
+                                accept=".xlsx,.xls,.csv"
+                                class="file-input"
+                                aria-label="Selecione arquivo para importar quantidades de estoque"
+                            >
+                            <label for="inventory-qty-file-input" class="file-label">
+                                <div class="file-icon">📄</div>
+                                <p><strong>[Import Inventory Quantities]</strong></p>
+                                <span>Colunas: SKU ou EAN, Expected Quantity</span>
+                            </label>
+                        </div>
+
+                        <div class="section-controls" style="margin-top: 20px;">
+                            <button id="connect-gsheets-qty" class="btn btn--primary btn--small" aria-label="Conectar Google Sheets">
+                                🔗 Conectar Google Sheet
+                            </button>
+                            <button id="sync-gsheets-qty" class="btn btn--success btn--small" aria-label="Sincronizar agora">
+                                🔄 Sincronizar Agora
+                            </button>
+                            <span id="gsheets-qty-status" style="margin-left: 10px; font-size: 0.9rem;"></span>
+                        </div>
+
+                        <section class="current-products" style="margin-top: 20px;">
+                            <h3>📋 Quantidades Carregadas</h3>
+                            <p id="qty-count" class="section-info">0 itens</p>
+                            <div class="table-responsive">
+                                <table id="qty-table" class="preview-table">
+                                    <thead>
+                                        <tr>
+                                            <th>SKU</th>
+                                            <th>EAN</th>
+                                            <th>Quantidade Esperada</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="qty-body"></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </section>
+                </section>
+
+                <!-- TAB: Manual Invoice -->
+                <section id="tab-manual-invoice" class="tab-content" aria-label="Nota Fiscal Manual">
+                    <section class="import-section">
+                        <h2>📝 Criar Nota Fiscal Manual</h2>
+                        <p class="section-info">Crie notas manuais sem XML para reconciliação.</p>
+                        
+                        <form id="manual-invoice-form">
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="invoice-number">Número da Nota</label>
+                                    <input type="text" id="invoice-number" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="invoice-supplier">Fornecedor</label>
+                                    <input type="text" id="invoice-supplier" class="form-input" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="invoice-date">Data</label>
+                                    <input type="date" id="invoice-date" class="form-input" required>
+                                </div>
+                            </div>
+                        </form>
+
+                        <h3 style="margin-top: 20px;">Itens da Nota</h3>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="item-ean">EAN</label>
+                                <input type="text" id="item-ean" class="form-input" placeholder="Digite ou escaneie">
+                            </div>
+                            <div class="form-group">
+                                <label for="item-qty">Quantidade</label>
+                                <input type="number" id="item-qty" class="form-input" value="1" min="1">
+                            </div>
+                        </div>
+                        <button id="add-invoice-item" class="btn btn--primary btn--small">Adicionar Item</button>
+
+                        <div class="table-responsive" style="margin-top: 15px;">
+                            <table id="manual-invoice-items" class="history-table">
+                                <thead>
+                                    <tr>
+                                        <th>EAN</th>
+                                        <th>Produto</th>
+                                        <th>SKU</th>
+                                        <th>Quantidade</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="manual-invoice-items-body"></tbody>
+                            </table>
+                        </div>
+
+                        <div class="import-actions" style="margin-top: 20px;">
+                            <button id="save-manual-invoice" class="btn btn--success btn--large">Salvar Nota</button>
+                        </div>
+                    </section>
+                </section>
+
+                <!-- TAB: Reconciliation -->
+                <section id="tab-reconciliation" class="tab-content" aria-label="Reconciliação de Inventário">
+                    <section class="conference-section">
+                        <header class="conference-header">
+                            <h2>🔄 Reconciliação de Inventário</h2>
+                            <div class="conference-info">
+                                <div class="nf-info">
+                                    <span><strong>Produtos no Catálogo:</strong> <span id="recon-catalog-count">0</span></span>
+                                    <span><strong>Produtos Contados:</strong> <span id="recon-scanned-count">0</span></span>
+                                    <span><strong>Divergências:</strong> <span id="recon-div-count">0</span></span>
+                                </div>
+                            </div>
+                        </header>
+
+                        <div class="section-controls">
+                            <button id="run-reconciliation" class="btn btn--success btn--large" aria-label="Executar reconciliação">
+                                ▶ Executar Reconciliação
+                            </button>
+                            <button id="export-reconciliation" class="btn btn--primary btn--large" aria-label="Exportar reconciliação">
+                                📥 Exportar Resultado
+                            </button>
+                        </div>
+
+                        <div class="table-responsive">
+                            <table id="reconciliation-table" class="divergences-table">
+                                <caption>Resultados da reconciliação</caption>
+                                <thead>
+                                    <tr>
+                                        <th>SKU</th>
+                                        <th>EAN</th>
+                                        <th>Esperado</th>
+                                        <th>Contado</th>
+                                        <th>Diferença</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="reconciliation-body"></tbody>
+                            </table>
+                        </div>
                     </section>
                 </section>
 
@@ -671,46 +901,6 @@
                 </section>
             </div>
         </section>
-
-        <!-- ========== MODAL RELATÓRIO DE BIPAGEM ========== -->
-        <dialog id="bipagem-report-modal" class="modal modal--wide" aria-labelledby="bipagem-report-title">
-            <div class="modal-content">
-                <h2 id="bipagem-report-title">Relatório de Bipagem</h2>
-                
-                <div id="report-consolidated" class="tab-panel active">
-                    <p class="section-info">Relatório agrupado por produto, SKU e quantidade bipada nesta sessão.</p>
-                    <div class="table-responsive">
-                        <table id="bipagem-report-table" class="bipagem-report-table">
-                            <caption>Produto, SKU e Quantidade</caption>
-                            <thead>
-                                <tr>
-                                    <th>Produto</th>
-                                    <th>SKU</th>
-                                    <th>Quantidade</th>
-                                </tr>
-                            </thead>
-                            <tbody id="bipagem-report-body">
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <div class="modal-actions">
-                    <button id="export-bipagem-xlsx" class="btn btn--success btn--large" aria-label="Exportar relatório de bipagem em XLSX">
-                        📥 Exportar XLSX
-                    </button>
-                    <button id="export-bipagem-csv" class="btn btn--primary btn--large" aria-label="Exportar relatório de bipagem em CSV">
-                        📄 Exportar CSV
-                    </button>
-                    <button id="export-bipagem-pdf" class="btn btn--primary btn--large" aria-label="Exportar relatório de bipagem em PDF">
-                        📑 Exportar PDF
-                    </button>
-                    <button id="close-bipagem-report" class="btn btn--secondary btn--large" aria-label="Voltar para bipagem">
-                        ← Voltar à Bipagem
-                    </button>
-                </div>
-            </div>
-        </dialog>
 
     </div>
 

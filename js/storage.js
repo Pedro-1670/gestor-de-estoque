@@ -6,6 +6,8 @@
 const Storage = {
     KEYS: {
         PRODUCTS: 'inventory_products',
+        PRODUCT_CATALOG: 'inventory_product_catalog',
+        INVENTORY_QUANTITIES: 'inventory_quantities',
         SCANS: 'inventory_scans',
         SESSIONS: 'inventory_sessions',
         CURRENT_SESSION: 'current_session',
@@ -13,7 +15,10 @@ const Storage = {
         MOVEMENTS: 'inventory_movements',
         AUTH_SESSION: 'inventory_auth_session',
         OPERATOR_SESSION: 'inventory_operator_session',
-        SETTINGS: 'inventory_settings'
+        SETTINGS: 'inventory_settings',
+        XML_INVOICES: 'inventory_xml_invoices',
+        MANUAL_INVOICES: 'inventory_manual_invoices',
+        GOOGLE_SHEETS_CONFIG: 'inventory_gsheets_config'
     },
 
     USERS: {
@@ -33,6 +38,7 @@ const Storage = {
 
     productCodeCache: new Map(),
     productListCache: null,
+    catalogCache: null,
 
     init() {
         if (!this.getProducts()) {
@@ -52,6 +58,16 @@ const Storage = {
         }
         if (!this.getSettings()) {
             this.saveSettings({ ...this.DEFAULT_CONTEXT });
+        }
+        if (!this.getXMLInvoices()) {
+            this.saveXMLInvoice({ id: 'init', items: [], nfInfo: {} });
+            localStorage.setItem(this.KEYS.XML_INVOICES, JSON.stringify([]));
+        }
+        if (!this.getManualInvoices()) {
+            localStorage.setItem(this.KEYS.MANUAL_INVOICES, JSON.stringify([]));
+        }
+        if (!this.getInventoryQuantities()) {
+            localStorage.setItem(this.KEYS.INVENTORY_QUANTITIES, JSON.stringify([]));
         }
     },
 
@@ -166,6 +182,27 @@ const Storage = {
         return this.productListCache || [];
     },
 
+    getProductCatalogCached() {
+        if (this.catalogCache === null) {
+            this.buildCatalogCache();
+        }
+        return this.catalogCache || [];
+    },
+
+    buildCatalogCache() {
+        const catalog = this.getProductCatalog();
+        const codeMap = new Map();
+
+        catalog.forEach(product => {
+            this.getProductCodeFields(product).forEach(code => {
+                codeMap.set(this.normalizeCacheKey(code), product);
+            });
+        });
+
+        this.catalogCache = catalog;
+        return catalog;
+    },
+
     saveProducts(products) {
         const normalizedProducts = Array.isArray(products) ? products.map(product => this.normalizeProduct(product)).filter(Boolean) : [];
         localStorage.setItem(this.KEYS.PRODUCTS, JSON.stringify(normalizedProducts));
@@ -220,6 +257,7 @@ const Storage = {
     invalidateProductCache() {
         this.productCodeCache = new Map();
         this.productListCache = null;
+        this.catalogCache = null;
     },
 
     buildProductCache() {
@@ -602,6 +640,8 @@ const Storage = {
 
     clear() {
         localStorage.removeItem(this.KEYS.PRODUCTS);
+        localStorage.removeItem(this.KEYS.PRODUCT_CATALOG);
+        localStorage.removeItem(this.KEYS.INVENTORY_QUANTITIES);
         localStorage.removeItem(this.KEYS.SCANS);
         localStorage.removeItem(this.KEYS.SESSIONS);
         localStorage.removeItem(this.KEYS.CURRENT_SESSION);
@@ -610,7 +650,170 @@ const Storage = {
         localStorage.removeItem(this.KEYS.AUTH_SESSION);
         localStorage.removeItem(this.KEYS.OPERATOR_SESSION);
         localStorage.removeItem(this.KEYS.SETTINGS);
+        localStorage.removeItem(this.KEYS.XML_INVOICES);
+        localStorage.removeItem(this.KEYS.MANUAL_INVOICES);
+        localStorage.removeItem(this.KEYS.GOOGLE_SHEETS_CONFIG);
         this.invalidateProductCache();
+    },
+
+    // ========== Multiple XML Invoices Support ==========
+    getXMLInvoices() {
+        const data = localStorage.getItem(this.KEYS.XML_INVOICES);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveXMLInvoice(invoice) {
+        const invoices = this.getXMLInvoices();
+        const existingIndex = invoices.findIndex(i => i.id === invoice.id || i.nfNumber === invoice.nfInfo?.numeroNF);
+        
+        if (existingIndex >= 0) {
+            invoices[existingIndex] = { ...invoices[existingIndex], ...invoice };
+        } else {
+            invoices.push(invoice);
+        }
+        
+        localStorage.setItem(this.KEYS.XML_INVOICES, JSON.stringify(invoices));
+        return invoices;
+    },
+
+    mergeXMLInvoiceItems(newItems, existingItems) {
+        const merged = new Map();
+        
+        existingItems.forEach(item => {
+            const key = `${item.ean}|${item.codigoProduto}`;
+            merged.set(key, { ...item });
+        });
+        
+        newItems.forEach(item => {
+            const key = `${item.ean}|${item.codigoProduto}`;
+            if (merged.has(key)) {
+                merged.get(key).quantity += item.quantity;
+                merged.get(key).totalValue += item.totalValue;
+            } else {
+                merged.set(key, { ...item });
+            }
+        });
+        
+        return [...merged.values()];
+    },
+
+    removeXMLInvoice(invoiceId) {
+        const invoices = this.getXMLInvoices().filter(i => i.id !== invoiceId);
+        localStorage.setItem(this.KEYS.XML_INVOICES, JSON.stringify(invoices));
+        return invoices;
+    },
+
+    // ========== Manual Invoices Support ==========
+    getManualInvoices() {
+        const data = localStorage.getItem(this.KEYS.MANUAL_INVOICES);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveManualInvoice(invoice) {
+        const invoices = this.getManualInvoices();
+        invoices.push({
+            ...invoice,
+            id: this.generateId(),
+            createdAt: new Date().toISOString()
+        });
+        localStorage.setItem(this.KEYS.MANUAL_INVOICES, JSON.stringify(invoices));
+        return invoices;
+    },
+
+    // ========== Product Catalog vs Inventory Quantities ==========
+    getProductCatalog() {
+        const data = localStorage.getItem(this.KEYS.PRODUCT_CATALOG);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveProductCatalog(products) {
+        const normalized = Array.isArray(products) ? products.map(p => this.normalizeProduct(p)).filter(Boolean) : [];
+        localStorage.setItem(this.KEYS.PRODUCT_CATALOG, JSON.stringify(normalized));
+        this.invalidateProductCache();
+        return normalized;
+    },
+
+    getInventoryQuantities() {
+        const data = localStorage.getItem(this.KEYS.INVENTORY_QUANTITIES);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveInventoryQuantities(quantities) {
+        const normalized = Array.isArray(quantities) ? quantities.map(q => ({
+            ean: this.normalizeCode(q.EAN || q.ean),
+            sku: this.normalizeCode(q.SKU || q.sku),
+            expectedQuantity: Number(q.ExpectedQuantity ?? q.expectedQuantity ?? q.Estoque ?? q.Stock ?? 0)
+        })).filter(q => q.ean || q.sku) : [];
+        localStorage.setItem(this.KEYS.INVENTORY_QUANTITIES, JSON.stringify(normalized));
+        return normalized;
+    },
+
+    // ========== Google Sheets Integration ==========
+    getGoogleSheetsConfig() {
+        const data = localStorage.getItem(this.KEYS.GOOGLE_SHEETS_CONFIG);
+        return data ? JSON.parse(data) : null;
+    },
+
+    saveGoogleSheetsConfig(config) {
+        localStorage.setItem(this.KEYS.GOOGLE_SHEETS_CONFIG, JSON.stringify({
+            ...config,
+            lastSync: new Date().toISOString()
+        }));
+    },
+
+    getSyncTimestamp() {
+        const config = this.getGoogleSheetsConfig();
+        return config?.lastSync || null;
+    },
+
+    // ========== Reconciliation ==========
+    getExpectedQuantity(productCode) {
+        const quantities = this.getInventoryQuantities();
+        const normalizedCode = this.normalizeCacheKey(productCode);
+        
+        for (const qty of quantities) {
+            if (this.normalizeCacheKey(qty.ean) === normalizedCode ||
+                this.normalizeCacheKey(qty.sku) === normalizedCode) {
+                return qty.expectedQuantity;
+            }
+        }
+        return 0;
+    },
+
+    getReconciliationData() {
+        const scans = this.getScans() || [];
+        const expectedQtys = this.getInventoryQuantities() || [];
+        const discrepancies = [];
+        
+        const scannedCounts = {};
+        scans.forEach(scan => {
+            const code = this.getScanPrimaryCode(scan);
+            if (code) {
+                scannedCounts[code] = (scannedCounts[code] || 0) + 1;
+            }
+        });
+        
+        expectedQtys.forEach(expected => {
+            const code = expected.ean || expected.sku;
+            if (!code) return;
+            
+            const scannedQty = scannedCounts[code] || 0;
+            const expectedQty = expected.expectedQuantity;
+            const difference = scannedQty - expectedQty;
+            
+            if (difference !== 0) {
+                discrepancies.push({
+                    ean: expected.ean,
+                    sku: expected.sku,
+                    scanned: scannedQty,
+                    expected: expectedQty,
+                    difference: difference,
+                    type: difference > 0 ? 'excess' : 'shortage'
+                });
+            }
+        });
+        
+        return discrepancies;
     },
 
     getStatistics() {

@@ -509,11 +509,63 @@ const Utils = {
      */
 
     sanitizeInput(input) {
+        if (!input) return '';
         return input
             .trim()
             .replace(/[<>]/g, '')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    },
+
+    sanitizeObject(obj) {
+        if (!obj || typeof obj !== 'object') return obj;
+        const sanitized = {};
+        for (const key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                const value = obj[key];
+                if (typeof value === 'string') {
+                    sanitized[key] = this.sanitizeInput(value);
+                } else if (Array.isArray(value)) {
+                    sanitized[key] = value.map(item => this.sanitizeObject(item));
+                } else if (typeof value === 'object' && value !== null) {
+                    sanitized[key] = this.sanitizeObject(value);
+                } else {
+                    sanitized[key] = value;
+                }
+            }
+        }
+        return sanitized;
+    },
+
+    validateXMLStructure(xml) {
+        if (!xml) return false;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xml, 'application/xml');
+        const error = doc.querySelector('parsererror');
+        return !error;
+    },
+
+    validateExcelFile(file) {
+        return file && (file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv'));
+    },
+
+    validateXMLFile(file) {
+        return file && file.name.endsWith('.xml');
+    },
+
+    validateSession() {
+        const authSession = Storage.getAuthSession();
+        const operatorSession = Storage.getOperatorSession();
+        return authSession || operatorSession;
+    },
+
+    checkRolePermission(role, permission) {
+        const permissions = {
+            supervisor: ['dashboard', 'history', 'divergences', 'not-inventoried', 'import', 'import-xml', 'conference', 'reports', 'config', 'reconciliation', 'manual-invoice', 'product-catalog', 'inventory-quantities', 'gsheets'],
+            operator: ['scan', 'history', 'finish']
+        };
+        const allowed = permissions[role] || [];
+        return allowed.includes(permission);
     }
 };
 

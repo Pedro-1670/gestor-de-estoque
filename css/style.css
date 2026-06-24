@@ -1443,3 +1443,64 @@ a:focus-visible {
     display: flex;
     justify-content: flex-end;
 }
+
+/* ============================================================================
+   INVOICE PREVIEW CARD
+   ============================================================================ */
+
+.invoice-preview-card {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.invoice-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm);
+}
+
+.invoice-header strong {
+    color: var(--color-primary);
+}
+
+.invoice-details {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+}
+
+.invoice-details div {
+    margin-bottom: 2px;
+}
+
+/* ============================================================================
+   FORM GRID
+   ============================================================================ */
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+/* ============================================================================
+   OPERATOR PERMISSION HIDING
+   ============================================================================ */
+
+.operator-hidden {
+    display: none !important;
+}
+
+/* ============================================================================
+   GOOGLE SHEETS STATUS
+   ============================================================================ */
+
+.gsheets-status {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    margin-left: var(--spacing-sm);
+}

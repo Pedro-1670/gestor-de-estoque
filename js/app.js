@@ -6,7 +6,6 @@
  */
 
 const App = {
-    // Estado da aplicação
     state: {
         currentUser: null,
         userRole: null,
@@ -19,14 +18,16 @@ const App = {
         sessionTimer: null,
         pendingImport: null,
         pendingXMLImport: null,
+        pendingMultipleXMLImports: null,
         bipagemReportRows: [],
         conferenceItems: [],
-        conferenceSession: null
+        conferenceSession: null,
+        manualInvoiceItems: []
     },
 
     permissions: {
-        supervisor: ['dashboard', 'history', 'divergences', 'not-inventoried', 'import', 'import-xml', 'conference', 'reports', 'config'],
-        operator: ['bipagem', 'history']
+        supervisor: ['dashboard', 'history', 'divergences', 'not-inventoried', 'import', 'import-xml', 'conference', 'reports', 'config', 'reconciliation', 'manual-invoice', 'product-catalog', 'inventory-quantities', 'gsheets'],
+        operator: ['scan', 'history', 'finish']
     },
 
     isTabAllowed(tabName) {
@@ -87,7 +88,7 @@ const App = {
      * LOGIN
      */
 
-    setupEventListeners() {
+setupEventListeners() {
         // Login
         const loginForm = document.getElementById('login-form');
         if (loginForm) {
@@ -113,7 +114,6 @@ const App = {
         document.getElementById('product-search-input')?.addEventListener('keydown', (e) => this.handleProductSearchKeydown(e));
         document.getElementById('clear-history')?.addEventListener('click', () => this.clearHistory());
         document.getElementById('history-filter-input')?.addEventListener('input', (e) => this.updateHistoryTable());
-        document.getElementById('finish-bipagem')?.addEventListener('click', () => this.showBipagemReportModal());
         document.getElementById('finish-inventory')?.addEventListener('click', () => this.finishInventory());
 
         // Supervisor - Relatórios por Colaborador
@@ -126,7 +126,8 @@ const App = {
         });
 
         // Supervisor - Importação
-        document.getElementById('excel-file-input')?.addEventListener('change', (e) => this.handleFileUpload(e));
+        document.getElementById('excel-file-input')?.addEventListener('change', (e) => this.handleFileUpload(e, 'catalog'));
+        document.getElementById('inventory-qty-file-input')?.addEventListener('change', (e) => this.handleFileUpload(e, 'quantities'));
         document.getElementById('confirm-import')?.addEventListener('click', () => this.confirmImport());
         document.getElementById('cancel-import')?.addEventListener('click', () => this.cancelImport());
         document.getElementById('xml-file-input')?.addEventListener('change', (e) => this.handleXMLFileUpload(e));
@@ -144,16 +145,31 @@ const App = {
             btn.addEventListener('click', () => this.exportToPDF());
         });
 
-        // Relatório de bipagem
-        document.getElementById('export-bipagem-xlsx')?.addEventListener('click', () => this.exportBipagemReportXLSX());
-        document.getElementById('export-bipagem-csv')?.addEventListener('click', () => this.exportBipagemReportCSV());
-        document.getElementById('export-bipagem-pdf')?.addEventListener('click', () => this.exportBipagemReportPDF());
-        document.getElementById('close-bipagem-report')?.addEventListener('click', () => this.closeBipagemReportModal());
-        
-        
+        // Supervisor - New Reports
+        document.getElementById('export-inventory-summary')?.addEventListener('click', () => this.exportInventorySummary());
+        document.getElementById('export-divergence-report')?.addEventListener('click', () => this.exportDivergenceReport());
+        document.getElementById('export-history-report')?.addEventListener('click', () => this.exportHistoryReport());
 
         // Supervisor - Filtros
         document.getElementById('apply-filters')?.addEventListener('click', () => this.applyFilters());
+
+        // Google Sheets
+        document.getElementById('connect-gsheets-catalog')?.addEventListener('click', () => this.openGoogleSheetsModal('catalog'));
+        document.getElementById('connect-gsheets-qty')?.addEventListener('click', () => this.openGoogleSheetsModal('quantities'));
+        document.getElementById('sync-gsheets-catalog')?.addEventListener('click', () => this.syncGoogleSheetsData('catalog'));
+        document.getElementById('sync-gsheets-qty')?.addEventListener('click', () => this.syncGoogleSheetsData('quantities'));
+
+        // Manual Invoice
+        document.getElementById('add-invoice-item')?.addEventListener('click', () => this.addManualInvoiceItem());
+        document.getElementById('save-manual-invoice')?.addEventListener('click', () => this.saveManualInvoice());
+
+        // Reconciliation
+        document.getElementById('run-reconciliation')?.addEventListener('click', () => this.runReconciliation());
+        document.getElementById('export-reconciliation')?.addEventListener('click', () => this.exportReconciliation());
+
+        // Multiple XML
+        document.getElementById('xml-file-input')?.addEventListener('change', (e) => this.handleMultipleXMLFileUpload(e));
+        document.getElementById('confirm-xml-import')?.addEventListener('click', () => this.confirmMultipleXMLImport());
 
         
 
@@ -833,7 +849,11 @@ const App = {
         });
 
         this.clearOperatorSessionState();
-        this.handleLogout();
+        this.showScreen('login-screen');
+        setTimeout(() => {
+            const nameInput = document.getElementById('operator-name-input');
+            if (nameInput) nameInput.focus();
+        }, 100);
     },
 
     clearOperatorSessionState() {
@@ -1218,7 +1238,57 @@ const App = {
             html2canvas: { scale: 2 },
             jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
         };
-        html2pdf().set(opt).from(element).save();
+        html2pdf().set(opt).from(element).save().then(() => {
+            document.body.removeChild(element);
+        }).catch(err => {
+            document.body.removeChild(element);
+            console.error('PDF export error:', err);
+            alert('Erro ao gerar PDF: ' + err.message);
+        });
+    },
+
+    exportInventorySummary() {
+        const products = Storage.getProducts() || [];
+        const scans = Storage.getScans() || [];
+        const stats = Storage.getStatistics();
+
+        const data = [{
+            'Total de Produtos': products.length,
+            'Total de Bipagens': scans.length,
+            'Colaboradores Únicos': stats.totalCollaborators,
+            'Data do Relatório': new Date().toLocaleDateString('pt-BR')
+        }];
+
+        Utils.createExcelFromData(data, `resumo_inventario_${new Date().toISOString().split('T')[0]}.xlsx`);
+    },
+
+    exportDivergenceReport() {
+        const discrepancies = Storage.getReconciliationData();
+        const data = discrepancies.map(d => ({
+            SKU: d.sku || '',
+            EAN: d.ean,
+            Esperado: d.expected,
+            Contado: d.scanned,
+            Diferença: d.difference,
+            Tipo: d.type === 'shortage' ? 'Falta' : 'Sobra'
+        }));
+
+        Utils.createExcelFromData(data, `divergencias_${new Date().toISOString().split('T')[0]}.xlsx`);
+    },
+
+    exportHistoryReport() {
+        const scans = Storage.getScans() || [];
+        const data = scans.map(s => ({
+            Data: new Date(s.timestamp).toLocaleDateString('pt-BR'),
+            Hora: new Date(s.timestamp).toLocaleTimeString('pt-BR'),
+            Colaborador: Storage.normalizeCode(s.collaborator),
+            Produto: Storage.normalizeCode(s.product),
+            SKU: Storage.normalizeCode(s.sku),
+            EAN: Storage.normalizeCode(s.ean),
+            Local: this.getLocationLabel(s.location)
+        }));
+
+        Utils.createExcelFromData(data, `historico_completo_${new Date().toISOString().split('T')[0]}.xlsx`);
     },
 
     createConsolidatedReportElement(rows) {
@@ -1350,6 +1420,9 @@ const App = {
             case 'history':
                 this.updateHistoryTab();
                 break;
+            case 'reconciliation':
+                this.updateReconciliationTab();
+                break;
             case 'divergences':
                 this.updateDiscrepanciesTab();
                 break;
@@ -1358,6 +1431,15 @@ const App = {
                 break;
             case 'import':
                 this.updateImportTab();
+                break;
+            case 'product-catalog':
+                this.updateProductCatalogTab();
+                break;
+            case 'inventory-quantities':
+                this.updateInventoryQuantitiesTab();
+                break;
+            case 'manual-invoice':
+                this.updateManualInvoiceTab();
                 break;
             case 'conference':
                 this.updateConferenceTab();
@@ -1508,7 +1590,12 @@ const App = {
 
     updateImportTab() {
         const products = Storage.getProducts() || [];
-        document.getElementById('current-products-count').textContent = `${products.length} produtos`;
+        const catalog = Storage.getProductCatalog() || [];
+        const quantities = Storage.getInventoryQuantities() || [];
+        
+        document.getElementById('current-products-count').textContent = `${products.length} produtos no sistema`;
+        document.getElementById('catalog-count').textContent = `${catalog.length} produtos no catálogo`;
+        document.getElementById('qty-count').textContent = `${quantities.length} itens de quantidade`;
     },
 
     updateReportsTab() {
@@ -1529,6 +1616,239 @@ const App = {
         }
         
         this.updateCollaboratorReportSummary();
+    },
+
+    updateProductCatalogTab() {
+        const products = Storage.getProductCatalog() || [];
+        const tbody = document.getElementById('catalog-body');
+        const countEl = document.getElementById('catalog-count');
+        
+        if (countEl) countEl.textContent = `${products.length} produtos`;
+        if (!tbody) return;
+        
+        tbody.innerHTML = '';
+        products.slice(0, 50).forEach(product => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${Storage.normalizeCode(product.SKU || product.sku)}</td>
+                <td>${Storage.normalizeCode(product.EAN || product.ean)}</td>
+                <td>${Storage.getProductDisplayName(product)}</td>
+                <td>${Storage.normalizeCode(product.Brand || product.brand)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    },
+
+    updateInventoryQuantitiesTab() {
+        const quantities = Storage.getInventoryQuantities() || [];
+        const tbody = document.getElementById('qty-body');
+        const countEl = document.getElementById('qty-count');
+        
+        if (countEl) countEl.textContent = `${quantities.length} itens`;
+        if (!tbody) return;
+        
+        tbody.innerHTML = '';
+        quantities.forEach(qty => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${Storage.normalizeCode(qty.sku)}</td>
+                <td>${Storage.normalizeCode(qty.ean)}</td>
+                <td style="text-align: right;">${qty.expectedQuantity}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    },
+
+    updateManualInvoiceTab() {
+        const dateInput = document.getElementById('invoice-date');
+        if (dateInput) dateInput.valueAsDate = new Date();
+    },
+
+    openGoogleSheetsModal(source) {
+        const url = prompt('Cole a URL do Google Sheet (formato CSV):', '');
+        if (!url) return;
+        
+        const config = { source, gsheetUrl: url, connectedAt: new Date().toISOString() };
+        Storage.saveGoogleSheetsConfig(config);
+        
+        const statusEl = document.getElementById(`gsheets-${source === 'catalog' ? 'catalog' : 'qty'}-status`);
+        if (statusEl) {
+            statusEl.textContent = '✓ Conectado';
+            statusEl.style.color = 'green';
+        }
+    },
+
+    async syncGoogleSheetsData(source) {
+        const config = Storage.getGoogleSheetsConfig();
+        if (!config?.gsheetUrl) {
+            alert('Google Sheet não configurado.');
+            return;
+        }
+        
+        try {
+            const response = await fetch(config.gsheetUrl);
+            const text = await response.text();
+            
+            const lines = text.split('\n').map(line => line.split(','));
+            const headers = lines[0];
+            const rows = lines.slice(1).filter(line => line.some(cell => cell.trim()));
+            
+            if (source === 'catalog') {
+                const products = rows.map(row => {
+                    const p = {};
+                    headers.forEach((h, i) => {
+                        p[h.trim()] = row[i] || '';
+                    });
+                    return p;
+                });
+                Storage.saveProductCatalog(products);
+                this.updateProductCatalogTab();
+            } else {
+                const quantities = rows.map(row => {
+                    const q = {};
+                    headers.forEach((h, i) => {
+                        q[h.trim()] = row[i] || '';
+                    });
+                    return {
+                        ean: q.EAN || q.ean || '',
+                        sku: q.SKU || q.sku || '',
+                        expectedQuantity: Number(q.ExpectedQuantity || q.expectedQuantity || 0)
+                    };
+                }).filter(q => q.ean || q.sku);
+                Storage.saveInventoryQuantities(quantities);
+                this.updateInventoryQuantitiesTab();
+            }
+            
+            const statusEl = document.getElementById(`gsheets-${source === 'catalog' ? 'catalog' : 'qty'}-status`);
+            if (statusEl) {
+                statusEl.textContent = `✓ Última sync: ${new Date().toLocaleTimeString('pt-BR')}`;
+            }
+            
+        } catch (error) {
+            console.error('Sync error:', error);
+            alert('Erro ao sincronizar: ' + error.message);
+        }
+    },
+
+    addManualInvoiceItem() {
+        const ean = document.getElementById('item-ean').value.trim();
+        const qty = Number(document.getElementById('item-qty').value) || 1;
+        
+        if (!ean || qty < 1) return;
+        
+        const product = Storage.getProduct(ean);
+        const item = {
+            ean,
+            sku: product ? Storage.normalizeCode(product.SKU) : '',
+            description: product ? Storage.getProductDisplayName(product) : '',
+            quantity: qty
+        };
+        
+        if (!this.state.manualInvoiceItems) this.state.manualInvoiceItems = [];
+        this.state.manualInvoiceItems.push(item);
+        
+        this.renderManualInvoiceItems();
+        document.getElementById('item-ean').value = '';
+        document.getElementById('item-qty').value = '1';
+    },
+
+    renderManualInvoiceItems() {
+        const tbody = document.getElementById('manual-invoice-items-body');
+        if (!tbody || !this.state.manualInvoiceItems) return;
+        
+        tbody.innerHTML = '';
+        this.state.manualInvoiceItems.forEach((item, idx) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${item.ean}</td>
+                <td>${item.description}</td>
+                <td>${item.sku}</td>
+                <td style="text-align: right;">${item.quantity}</td>
+                <td><button onclick="App.removeManualInvoiceItem(${idx})" class="btn btn--secondary btn--small">Remover</button></td>
+            `;
+            tbody.appendChild(row);
+        });
+    },
+
+    removeManualInvoiceItem(index) {
+        if (this.state.manualInvoiceItems && this.state.manualInvoiceItems[index]) {
+            this.state.manualInvoiceItems.splice(index, 1);
+            this.renderManualInvoiceItems();
+        }
+    },
+
+    saveManualInvoice() {
+        const number = document.getElementById('invoice-number').value.trim();
+        const supplier = document.getElementById('invoice-supplier').value.trim();
+        const date = document.getElementById('invoice-date').value;
+        
+        if (!number || !supplier || !this.state.manualInvoiceItems?.length) {
+            alert('Preencha todos os campos e adicione itens.');
+            return;
+        }
+        
+        const invoice = this.createManualInvoice({
+            invoiceNumber: number,
+            supplier,
+            date,
+            items: this.state.manualInvoiceItems
+        });
+        
+        Storage.saveXMLInvoice({
+            id: invoice.id,
+            nfInfo: { numeroNF: number, fornecedor: supplier, dataEmissao: date },
+            items: invoice.items.map(item => ({
+                codigoProduto: item.sku,
+                ean: item.ean,
+                description: item.description,
+                quantity: item.quantity,
+                unitValue: 0,
+                totalValue: 0
+            }))
+        });
+        
+        alert('Nota fiscal manual salva com sucesso!');
+        this.state.manualInvoiceItems = [];
+        this.renderManualInvoiceItems();
+        document.getElementById('manual-invoice-form').reset();
+    },
+
+    runReconciliation() {
+        const discrepancies = Storage.getReconciliationData();
+        const tbody = document.getElementById('reconciliation-body');
+        const countEl = document.getElementById('recon-div-count');
+        
+        if (countEl) countEl.textContent = discrepancies.length;
+        if (!tbody) return;
+        
+        tbody.innerHTML = '';
+        discrepancies.forEach(disc => {
+            const row = document.createElement('tr');
+            const diffColor = disc.type === 'shortage' ? 'diff-red' : 'diff-green';
+            row.innerHTML = `
+                <td>${disc.sku || '-'}</td>
+                <td>${disc.ean}</td>
+                <td style="text-align: right;">${disc.expected}</td>
+                <td style="text-align: right;">${disc.scanned}</td>
+                <td style="text-align: right;" class="${diffColor}"><strong>${disc.difference > 0 ? '+' : ''}${disc.difference}</strong></td>
+                <td>${disc.type === 'shortage' ? '❌ Falta' : '✅ Sobra'}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    },
+
+    exportReconciliation() {
+        const discrepancies = Storage.getReconciliationData();
+        const data = discrepancies.map(d => ({
+            SKU: d.sku || '',
+            EAN: d.ean,
+            Esperado: d.expected,
+            Contado: d.scanned,
+            Diferença: d.difference,
+            Tipo: d.type === 'shortage' ? 'Falta' : 'Sobra'
+        }));
+        
+        Utils.createExcelFromData(data, `reconciliacao_${new Date().toISOString().split('T')[0]}.xlsx`);
     },
 
     updateCollaboratorReportSummary() {
@@ -1670,11 +1990,23 @@ const App = {
 
         const file = files[0];
 
+        if (!Utils.validateXMLFile(file)) {
+            alert('Arquivo inválido. Selecione um arquivo XML.');
+            return;
+        }
+
         try {
             const { items, nfInfo } = await Utils.parseXMLNFeFile(file);
             
             if (!items || items.length === 0) {
                 alert('Nenhum item válido encontrado no XML.');
+                return;
+            }
+
+            const existingInvoices = Storage.getXMLInvoices();
+            const nfNumber = nfInfo.numeroNF || nfInfo.nfNumber;
+            if (existingInvoices.some(inv => inv.nfInfo?.numeroNF === nfNumber)) {
+                alert('Esta nota fiscal já foi importada anteriormente.');
                 return;
             }
 
@@ -1916,7 +2248,7 @@ const App = {
      * IMPORTAÇÃO DE EXCEL
      */
 
-    async handleFileUpload(event) {
+    async handleFileUpload(event, importType = 'catalog') {
         const files = event.target.files;
         if (!files || files.length === 0) return;
 
@@ -1936,7 +2268,20 @@ const App = {
                 return;
             }
 
-            // Validar estrutura
+            if (importType === 'quantities') {
+                const quantities = rows.map(row => ({
+                    ean: Storage.normalizeCode(row.EAN || row.ean || row.SKU || row.sku),
+                    sku: Storage.normalizeCode(row.SKU || row.sku),
+                    expectedQuantity: Number(Storage.normalizeStock(row.ExpectedQuantity ?? row.expectedQuantity ?? row.Estoque ?? row.Stock))
+                })).filter(q => q.ean);
+                
+                Storage.saveInventoryQuantities(quantities);
+                document.getElementById('inventory-qty-file-input').value = '';
+                alert(`${quantities.length} quantidades de estoque importadas com sucesso!`);
+                this.updateInventoryQuantitiesTab();
+                return;
+            }
+
             const hasRequiredFields = rows.some(row => this.hasImportCode(row));
 
             if (!hasRequiredFields) {
@@ -1944,10 +2289,7 @@ const App = {
                 return;
             }
 
-            // Armazenar para confirmação
             this.state.pendingImport = rows;
-
-            // Mostrar prévia
             this.showImportPreview(rows);
 
         } catch (error) {
@@ -1993,6 +2335,7 @@ const App = {
 
         const products = this.state.pendingImport.map(row => this.normalizeImportedProduct(row));
         const savedProducts = Storage.saveProducts(products);
+        Storage.saveProductCatalog(products);
 
         console.log("Produtos carregados:", savedProducts.length);
         console.table(savedProducts);
@@ -2086,6 +2429,7 @@ const App = {
         }
 
         const element = document.createElement('div');
+        element.style.padding = '20px';
         element.innerHTML = `
             <h1>Relatório de Inventário</h1>
             <p>Data: ${new Date().toLocaleDateString('pt-BR')}</p>
@@ -2116,6 +2460,8 @@ const App = {
             </table>
         `;
 
+        document.body.appendChild(element);
+
         const opt = {
             margin: 10,
             filename: `inventario_${new Date().toISOString().split('T')[0]}.pdf`,
@@ -2124,7 +2470,247 @@ const App = {
             jsPDF: { orientation: 'landscape', unit: 'mm', format: 'a4' }
         };
 
-        html2pdf().set(opt).from(element).save();
+        html2pdf().set(opt).from(element).save().then(() => {
+            document.body.removeChild(element);
+        }).catch(err => {
+            document.body.removeChild(element);
+            console.error('PDF export error:', err);
+            alert('Erro ao gerar PDF: ' + err.message);
+        });
+    },
+
+    /**
+     * GOOGLE SHEETS INTEGRATION
+     */
+
+    async connectGoogleSheets(config) {
+        const gsheetUrl = config.gsheetUrl;
+        const clientId = config.clientId;
+        
+        try {
+            const response = await fetch(gsheetUrl);
+            if (!response.ok) {
+                throw new Error('Failed to fetch Google Sheet');
+            }
+            
+            const text = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+            
+            Storage.saveGoogleSheetsConfig({
+                gsheetUrl,
+                clientId,
+                connected: true
+            });
+            
+            return { success: true };
+        } catch (error) {
+            console.error('Google Sheets connection error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    async syncGoogleSheets() {
+        const config = Storage.getGoogleSheetsConfig();
+        if (!config?.gsheetUrl) {
+            return { success: false, error: 'Not configured' };
+        }
+        
+        try {
+            const response = await fetch(config.gsheetUrl);
+            const text = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+            
+            const sheets = doc.querySelectorAll('sheet');
+            if (sheets.length < 2) {
+                return { success: false, error: 'Invalid sheet structure' };
+            }
+            
+            const productCatalog = this.parseSheetData(sheets[0]);
+            const inventoryQuantities = this.parseSheetData(sheets[1]);
+            
+            Storage.saveProductCatalog(productCatalog);
+            Storage.saveInventoryQuantities(inventoryQuantities);
+            
+            Storage.saveGoogleSheetsConfig({ ...config, lastSync: new Date().toISOString() });
+            
+            return { 
+                success: true, 
+                products: productCatalog.length, 
+                quantities: inventoryQuantities.length 
+            };
+        } catch (error) {
+            console.error('Sync error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    parseSheetData(sheet) {
+        const rows = [];
+        const trs = sheet.querySelectorAll('tr');
+        const headers = [...trs[0].querySelectorAll('th, td')].map(th => th.textContent.trim());
+        
+        for (let i = 1; i < trs.length; i++) {
+            const cells = [...trs[i].querySelectorAll('td')];
+            const row = {};
+            headers.forEach((header, idx) => {
+                row[header] = cells[idx] ? cells[idx].textContent.trim() : '';
+            });
+            if (Object.values(row).some(v => v)) {
+                rows.push(row);
+            }
+        }
+        return rows;
+    },
+
+    /**
+     * MANUAL INVOICE ENTRY
+     */
+
+    createManualInvoice(invoiceData) {
+        const invoice = {
+            ...invoiceData,
+            id: Storage.generateId(),
+            items: invoiceData.items || [],
+            createdAt: new Date().toISOString(),
+            createdBy: this.state.currentUser
+        };
+        
+        const saved = Storage.saveManualInvoice(invoice);
+        return saved[saved.length - 1];
+    },
+
+    /**
+     * MULTIPLE XML INVOICES
+     */
+
+    async handleMultipleXMLFileUpload(event) {
+        const files = event.target.files;
+        if (!files || files.length === 0) return;
+        
+        const results = [];
+        for (const file of files) {
+            try {
+                const { items, nfInfo } = await Utils.parseXMLNFeFile(file);
+                if (items && items.length > 0) {
+                    const invoiceId = Storage.generateId();
+                    results.push({
+                        id: invoiceId,
+                        items,
+                        nfInfo: { ...nfInfo, numeroNF: nfInfo.numeroNF || nfInfo.nfNumber },
+                        fileName: file.name,
+                        uploadedAt: new Date().toISOString()
+                    });
+                }
+            } catch (error) {
+                console.error(`Error processing ${file.name}:`, error);
+            }
+        }
+        
+        if (results.length > 0) {
+            this.state.pendingMultipleXMLImports = results;
+            this.showMultipleXMLPreview(results);
+        }
+    },
+
+    showMultipleXMLPreview(invoices) {
+        const status = document.getElementById('xml-import-status');
+        const preview = document.getElementById('xml-import-preview');
+        const previewBody = document.getElementById('xml-import-preview-body');
+        
+        status.innerHTML = '';
+        previewBody.innerHTML = '';
+        
+        Utils.removeClass(status, 'hidden');
+        status.className = 'import-result success';
+        status.innerHTML = `
+            <div><strong>${invoices.length}</strong> nota(s) fiscal(is) carregada(s)</div>
+            <div style="margin-top: 5px; font-size: 0.9rem;">
+                Total de <strong>${invoices.reduce((sum, inv) => sum + inv.items.length, 0)}</strong> itens encontrados
+            </div>
+        `;
+        
+        invoices.forEach(invoice => {
+            const card = document.createElement('div');
+            card.className = 'invoice-preview-card';
+            card.innerHTML = `
+                <div class="invoice-header">
+                    <strong>NF ${invoice.nfInfo.numeroNF || invoice.nfInfo.nfNumber}</strong>
+                    <span>Série: ${invoice.nfInfo.serie || '-'}</span>
+                </div>
+                <div class="invoice-details">
+                    <div>Fornecedor: ${invoice.nfInfo.fornecedor || '-'}</div>
+                    <div>Data: ${invoice.nfInfo.dataEmissao || '-'}</div>
+                    <div>Itens: ${invoice.items.length}</div>
+                    <div>Total: R$ ${invoice.items.reduce((sum, item) => sum + (item.totalValue || 0), 0).toFixed(2)}</div>
+                </div>
+            `;
+            previewBody.appendChild(card);
+        });
+        
+        Utils.removeClass(preview, 'hidden');
+    },
+
+    confirmMultipleXMLImport() {
+        if (!this.state.pendingMultipleXMLImports) return;
+        
+        this.state.pendingMultipleXMLImports.forEach(invoice => {
+            Storage.saveXMLInvoice({
+                id: invoice.id,
+                ...invoice
+            });
+        });
+        
+        document.getElementById('xml-import-status').classList.add('hidden');
+        document.getElementById('xml-import-preview').classList.add('hidden');
+        document.getElementById('xml-file-input').value = '';
+        
+        alert(`${this.state.pendingMultipleXMLImports.length} notas fiscais importadas com sucesso!`);
+        this.state.pendingMultipleXMLImports = null;
+    },
+
+    /**
+     * RECONCILIATION MODULE
+     */
+
+    updateReconciliationTab() {
+        const discrepancies = Storage.getReconciliationData();
+        const tbody = document.getElementById('reconciliation-body');
+        
+        if (tbody) {
+            tbody.innerHTML = '';
+            discrepancies.forEach(disc => {
+                const row = document.createElement('tr');
+                const diffColor = disc.type === 'shortage' ? 'diff-red' : 'diff-green';
+                row.innerHTML = `
+                    <td>${Storage.normalizeCode(disc.sku)}</td>
+                    <td>${disc.ean}</td>
+                    <td>${disc.scanned}</td>
+                    <td>${disc.expected}</td>
+                    <td class="${diffColor}"><strong>${disc.difference > 0 ? '+' : ''}${disc.difference}</strong></td>
+                    <td>${disc.type === 'shortage' ? '❌ Falta' : '✅ Sobra'}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+    },
+
+    /**
+     * BOX/PACKAGE COUNTING
+     */
+
+    getUnitConversion(product) {
+        const boxQty = Number(Storage.normalizeCode(product.QuantidadePorCaixa || product.QtdPorCaixa || 0));
+        const bundleQty = Number(Storage.normalizeCode(product.QuantidadePorMalote || product.QtdPorMalote || 0));
+        const packageQty = Number(Storage.normalizeCode(product.QuantidadePorPacote || product.QtdPorPacote || 0));
+        
+        return {
+            unit: 1,
+            box: boxQty > 0 ? boxQty : 1,
+            bundle: bundleQty > 0 ? bundleQty : 1,
+            package: packageQty > 0 ? packageQty : 1
+        };
     },
 
     /**
