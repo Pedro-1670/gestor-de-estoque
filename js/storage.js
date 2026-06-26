@@ -18,7 +18,8 @@ const Storage = {
         SETTINGS: 'inventory_settings',
         XML_INVOICES: 'inventory_xml_invoices',
         MANUAL_INVOICES: 'inventory_manual_invoices',
-        GOOGLE_SHEETS_CONFIG: 'inventory_gsheets_config'
+        GOOGLE_SHEETS_CONFIG: 'inventory_gsheets_config',
+        NFC_CONFIRMATIONS: 'inventory_nfc_confirmations'
     },
 
     USERS: {
@@ -68,6 +69,9 @@ const Storage = {
         }
         if (!this.getInventoryQuantities()) {
             localStorage.setItem(this.KEYS.INVENTORY_QUANTITIES, JSON.stringify([]));
+        }
+        if (!this.getNFCconferenceReports()) {
+            localStorage.setItem(this.KEYS.NFC_CONFIRMATIONS, JSON.stringify([]));
         }
     },
 
@@ -634,136 +638,25 @@ const Storage = {
         localStorage.setItem(this.KEYS.SETTINGS, JSON.stringify(settings));
     },
 
-    generateId() {
+generateId() {
         return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     },
 
-    clear() {
-        localStorage.removeItem(this.KEYS.PRODUCTS);
-        localStorage.removeItem(this.KEYS.PRODUCT_CATALOG);
-        localStorage.removeItem(this.KEYS.INVENTORY_QUANTITIES);
-        localStorage.removeItem(this.KEYS.SCANS);
-        localStorage.removeItem(this.KEYS.SESSIONS);
-        localStorage.removeItem(this.KEYS.CURRENT_SESSION);
-        localStorage.removeItem(this.KEYS.COLLABORATORS);
-        localStorage.removeItem(this.KEYS.MOVEMENTS);
-        localStorage.removeItem(this.KEYS.AUTH_SESSION);
-        localStorage.removeItem(this.KEYS.OPERATOR_SESSION);
-        localStorage.removeItem(this.KEYS.SETTINGS);
-        localStorage.removeItem(this.KEYS.XML_INVOICES);
-        localStorage.removeItem(this.KEYS.MANUAL_INVOICES);
-        localStorage.removeItem(this.KEYS.GOOGLE_SHEETS_CONFIG);
-        this.invalidateProductCache();
-    },
-
-    // ========== Multiple XML Invoices Support ==========
-    getXMLInvoices() {
-        const data = localStorage.getItem(this.KEYS.XML_INVOICES);
-        return data ? JSON.parse(data) : [];
-    },
-
-    saveXMLInvoice(invoice) {
-        const invoices = this.getXMLInvoices();
-        const existingIndex = invoices.findIndex(i => i.id === invoice.id || i.nfNumber === invoice.nfInfo?.numeroNF);
-        
-        if (existingIndex >= 0) {
-            invoices[existingIndex] = { ...invoices[existingIndex], ...invoice };
-        } else {
-            invoices.push(invoice);
-        }
-        
-        localStorage.setItem(this.KEYS.XML_INVOICES, JSON.stringify(invoices));
-        return invoices;
-    },
-
-    mergeXMLInvoiceItems(newItems, existingItems) {
-        const merged = new Map();
-        
-        existingItems.forEach(item => {
-            const key = `${item.ean}|${item.codigoProduto}`;
-            merged.set(key, { ...item });
-        });
-        
-        newItems.forEach(item => {
-            const key = `${item.ean}|${item.codigoProduto}`;
-            if (merged.has(key)) {
-                merged.get(key).quantity += item.quantity;
-                merged.get(key).totalValue += item.totalValue;
-            } else {
-                merged.set(key, { ...item });
-            }
-        });
-        
-        return [...merged.values()];
-    },
-
-    removeXMLInvoice(invoiceId) {
-        const invoices = this.getXMLInvoices().filter(i => i.id !== invoiceId);
-        localStorage.setItem(this.KEYS.XML_INVOICES, JSON.stringify(invoices));
-        return invoices;
-    },
-
-    // ========== Manual Invoices Support ==========
-    getManualInvoices() {
-        const data = localStorage.getItem(this.KEYS.MANUAL_INVOICES);
-        return data ? JSON.parse(data) : [];
-    },
-
-    saveManualInvoice(invoice) {
-        const invoices = this.getManualInvoices();
-        invoices.push({
-            ...invoice,
+    // ========== NF Conference Confirmations ==========
+    saveNFCconferenceReport(report) {
+        const reports = this.getNFCconferenceReports() || [];
+        reports.push({
             id: this.generateId(),
-            createdAt: new Date().toISOString()
+            ...report,
+            timestamp: new Date().toISOString()
         });
-        localStorage.setItem(this.KEYS.MANUAL_INVOICES, JSON.stringify(invoices));
-        return invoices;
+        localStorage.setItem(this.KEYS.NFC_CONFIRMATIONS, JSON.stringify(reports));
+        return reports;
     },
 
-    // ========== Product Catalog vs Inventory Quantities ==========
-    getProductCatalog() {
-        const data = localStorage.getItem(this.KEYS.PRODUCT_CATALOG);
+    getNFCconferenceReports() {
+        const data = localStorage.getItem(this.KEYS.NFC_CONFIRMATIONS);
         return data ? JSON.parse(data) : [];
-    },
-
-    saveProductCatalog(products) {
-        const normalized = Array.isArray(products) ? products.map(p => this.normalizeProduct(p)).filter(Boolean) : [];
-        localStorage.setItem(this.KEYS.PRODUCT_CATALOG, JSON.stringify(normalized));
-        this.invalidateProductCache();
-        return normalized;
-    },
-
-    getInventoryQuantities() {
-        const data = localStorage.getItem(this.KEYS.INVENTORY_QUANTITIES);
-        return data ? JSON.parse(data) : [];
-    },
-
-    saveInventoryQuantities(quantities) {
-        const normalized = Array.isArray(quantities) ? quantities.map(q => ({
-            ean: this.normalizeCode(q.EAN || q.ean),
-            sku: this.normalizeCode(q.SKU || q.sku),
-            expectedQuantity: Number(q.ExpectedQuantity ?? q.expectedQuantity ?? q.Estoque ?? q.Stock ?? 0)
-        })).filter(q => q.ean || q.sku) : [];
-        localStorage.setItem(this.KEYS.INVENTORY_QUANTITIES, JSON.stringify(normalized));
-        return normalized;
-    },
-
-    // ========== Google Sheets Integration ==========
-    getGoogleSheetsConfig() {
-        const data = localStorage.getItem(this.KEYS.GOOGLE_SHEETS_CONFIG);
-        return data ? JSON.parse(data) : null;
-    },
-
-    saveGoogleSheetsConfig(config) {
-        localStorage.setItem(this.KEYS.GOOGLE_SHEETS_CONFIG, JSON.stringify({
-            ...config,
-            lastSync: new Date().toISOString()
-        }));
-    },
-
-    getSyncTimestamp() {
-        const config = this.getGoogleSheetsConfig();
-        return config?.lastSync || null;
     },
 
     // ========== Reconciliation ==========

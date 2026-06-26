@@ -22,7 +22,13 @@ const App = {
         bipagemReportRows: [],
         conferenceItems: [],
         conferenceSession: null,
-        manualInvoiceItems: []
+        manualInvoiceItems: [],
+        // NF Conference state
+        loadedNF: null,
+        nfConferenceItems: [],
+        nfConfirmedCount: 0,
+        nfExcessCount: 0,
+        nfDivergenceCount: 0
     },
 
     permissions: {
@@ -109,6 +115,7 @@ setupEventListeners() {
 
         // Operador
         document.getElementById('barcode-input')?.addEventListener('keypress', (e) => this.handleBarcodeScan(e));
+        document.getElementById('load-nf-btn')?.addEventListener('click', () => this.loadNFConference());
         document.getElementById('product-search-input')?.addEventListener('input', (e) => this.handleProductSearchInput(e));
         document.getElementById('product-search-input')?.addEventListener('change', (e) => this.handleProductSearchSelect(e));
         document.getElementById('product-search-input')?.addEventListener('keydown', (e) => this.handleProductSearchKeydown(e));
@@ -490,8 +497,158 @@ setupEventListeners() {
             return;
         }
 
-        this.recordScan(produto, codigo);
+        if (this.state.loadedNF) {
+            this.recordNFConferenceScan(produto, codigo);
+        } else {
+            this.recordScan(produto, codigo);
+        }
         this.resetBarcodeInput();
+    },
+
+    recordNFConferenceScan(product, codigo) {
+        const now = new Date();
+        const ean = Storage.normalizeCode(product.EAN) || Storage.getProductPrimaryCode(product);
+        const sku = Storage.normalizeCode(product.SKU);
+
+        const nfItem = this.state.nfConferenceItems.find(i => 
+            i.ean === ean || i.codigoProduto === sku
+        );
+
+        const scan = {
+            collaborator: this.state.currentOperatorName || this.state.currentUser,
+            operatorName: this.state.currentOperatorName || this.state.currentUser,
+            operatorDate: this.state.currentOperatorDate,
+            operatorTime: this.state.currentOperatorTime,
+            product: Storage.getProductDisplayName(product),
+            sku: sku,
+            ean: ean,
+            barcode: Storage.normalizeCode(codigo),
+            stock: Storage.getProductStock(product),
+            category: Storage.getProductCategory(product),
+            timestamp: now.toISOString(),
+            time: now.toLocaleTimeString('pt-BR'),
+            bipagemType: this.getCurrentBipagemType(),
+            quantity: 1
+        };
+
+        if (!nfItem) {
+            scan.nfStatus = 'divergence';
+            this.state.nfDivergenceCount++;
+            this.showNFStatusMessage('🔴 Produto não encontrado nesta Nota Fiscal', 'error');
+        } else {
+            const wasComplete = nfItem.countedQuantity >= nfItem.expectedQuantity;
+            nfItem.countedQuantity++;
+            
+            if (nfItem.countedQuantity > nfItem.expectedQuantity) {
+                scan.nfStatus = 'excess';
+                this.state.nfExcessCount++;
+                this.showNFStatusMessage('🟡 Quantidade excedida', 'warning');
+            } else if (wasComplete) {
+                scan.nfStatus = 'excess';
+                this.showNFStatusMessage('🟡 Quantidade excedida', 'warning');
+            } else {
+                scan.nfStatus = 'ok';
+                if (nfItem.countedQuantity >= nfItem.expectedQuantity) {
+                    this.state.nfConfirmedCount++;
+                }
+                this.showNFStatusMessage('🟢 Produto localizado na Nota', 'success');
+            }
+        }
+
+        Storage.addScan(scan);
+        this.state.sessionScans.push(scan);
+
+        this.showProductInfo(product, scan);
+        this.updateOperatorDashboard();
+        this.updateHistoryTable();
+        this.updateNFInfoPanel();
+
+        const allComplete = this.state.nfConferenceItems.every(i => 
+            i.countedQuantity >= i.expectedQuantity
+        );
+        if (allComplete && this.state.nfConferenceItems.length > 0) {
+            this.showNFCompletedModal();
+        }
+    },
+
+    showNFCompletedModal() {
+        const totalItems = this.state.nfConferenceItems.length;
+        const confirmedItems = this.state.nfConferenceItems.filter(i => 
+            i.countedQuantity >= i.expectedQuantity
+        ).length;
+        const confirmedCount = this.state.nfConferenceItems.reduce((sum, i) => sum + i.countedQuantity, 0);
+        const missingCount = this.state.nfConferenceItems.reduce((sum, i) => 
+            sum + Math.max(0, i.expectedQuantity - i.countedQuantity), 0
+        );
+
+const modalHtml = `
+            <div class="modal" id="nf-completed-modal" open>
+                <div class="modal-content">
+                    <h2>✅ Conferência concluída</h2>
+                    <div class="nf-completed-details">
+                        <dl class="summary-list">
+                            <dt>Itens esperados:</dt>
+                            <dd>${totalItems}</dd>
+                            <dt>Itens conferidos:</dt>
+                            <dd>${confirmedCount}</dd>
+                            <dt>Divergências:</dt>
+                            <dd>${this.state.nfDivergenceCount}</dd>
+                            <dt>Excedentes:</dt>
+                            <dd>${this.state.nfExcessCount}</dd>
+                            <dt>Faltantes:</dt>
+                            <dd>${missingCount}</dd>
+                        </dl>
+                    </div>
+                    <div class="modal-actions">
+                        <button id="close-nf-modal" class="btn btn--secondary btn--large">Fechar</button>
+                        <button id="finalize-nf-conference" class="btn btn--success btn--large">Finalizar Conferência</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        const existing = document.getElementById('nf-completed-modal');
+        if (existing) existing.remove();
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        document.getElementById('close-nf-modal').onclick = () => {
+            document.getElementById('nf-completed-modal').remove();
+        };
+        
+        document.getElementById('finalize-nf-conference').onclick = () => {
+            this.finalizeNFConference();
+        };
+    },
+
+    finalizeNFConference() {
+        const modal = document.getElementById('nf-completed-modal');
+        if (modal) modal.remove();
+
+        const endTime = new Date();
+        const duration = Math.floor((endTime - this.state.sessionStartTime) / 1000);
+        
+        const nfScans = this.state.sessionScans.filter(s => s.nfStatus);
+        
+        Storage.saveNFCconferenceReport({
+            operator: this.state.currentOperatorName || this.state.currentUser,
+            date: new Date().toLocaleDateString('pt-BR'),
+            time: new Date().toLocaleTimeString('pt-BR'),
+            duration: duration,
+            itemsScanned: nfScans.length,
+            divergences: this.state.nfDivergenceCount,
+            excesses: this.state.nfExcessCount,
+            nfInfo: this.state.loadedNF?.nfInfo,
+            scans: nfScans
+        });
+
+        this.state.loadedNF = null;
+        this.state.nfConferenceItems = [];
+        this.state.nfConfirmedCount = 0;
+        this.state.nfExcessCount = 0;
+        this.state.nfDivergenceCount = 0;
+
+        this.showNFControls(false);
     },
 
     getCurrentBipagemType() {
@@ -617,6 +774,106 @@ setupEventListeners() {
             || products.find(product => this.matchesProductSearch(product, term));
     },
 
+    loadNFConference() {
+        const fornecedor = document.getElementById('nf-fornecedor-input').value.trim();
+        const nfNumber = document.getElementById('nf-number-input').value.trim();
+        const conferenceCode = document.getElementById('nf-code-input').value.trim();
+
+        let conference = null;
+
+        const invoices = Storage.getXMLInvoices() || [];
+
+        if (conferenceCode) {
+            conference = invoices.find(inv => inv.conferenceCode === conferenceCode || inv.id === conferenceCode);
+        } else if (nfNumber && fornecedor) {
+            conference = invoices.find(inv => 
+                inv.nfInfo?.numeroNF === nfNumber && 
+                inv.nfInfo?.fornecedor?.toLowerCase().includes(fornecedor.toLowerCase())
+            );
+        } else if (nfNumber) {
+            conference = invoices.find(inv => inv.nfInfo?.numeroNF === nfNumber);
+        } else if (fornecedor) {
+            conference = invoices.find(inv => 
+                inv.nfInfo?.fornecedor?.toLowerCase().includes(fornecedor.toLowerCase())
+            );
+        }
+
+        if (!conference || !conference.items || conference.items.length === 0) {
+            this.showProductError('Nota Fiscal não encontrada. Verifique os dados informados.');
+            return;
+        }
+
+        this.state.loadedNF = conference;
+        this.state.nfConferenceItems = conference.items.map(item => ({
+            codigoProduto: item.codigoProduto || item.SKU,
+            ean: item.ean || item.EAN,
+            description: item.description || item.Produto,
+            expectedQuantity: Number(item.quantity) || Number(item.Quantidade) || 0,
+            countedQuantity: 0
+        }));
+        this.state.nfConfirmedCount = 0;
+        this.state.nfExcessCount = 0;
+        this.state.nfDivergenceCount = 0;
+
+        this.updateNFInfoPanel();
+        this.showNFControls(true);
+        this.updateHistoryTable();
+    },
+
+    updateNFInfoPanel() {
+        const panel = document.getElementById('nf-info-panel');
+        if (!panel || !this.state.loadedNF) return;
+
+        const totalItems = this.state.nfConferenceItems.length;
+        const confirmedItems = this.state.nfConferenceItems.filter(i => i.countedQuantity >= i.expectedQuantity).length;
+        const confirmedCount = this.state.nfConferenceItems.reduce((sum, i) => sum + i.countedQuantity, 0);
+        const pendingCount = totalItems - confirmedItems;
+
+        Utils.show(panel);
+
+        document.getElementById('nf-display-fornecedor').textContent = this.state.loadedNF.nfInfo?.fornecedor || '-';
+        document.getElementById('nf-display-nf').textContent = this.state.loadedNF.nfInfo?.numeroNF || '-';
+        document.getElementById('nf-display-items').textContent = totalItems;
+        document.getElementById('nf-display-confirmed').textContent = confirmedCount;
+        document.getElementById('nf-display-pending').textContent = pendingCount;
+
+        const percent = totalItems > 0 ? Math.round((confirmedItems / totalItems) * 100) : 0;
+        const fill = document.getElementById('nf-progress-fill');
+        const percentEl = document.getElementById('nf-progress-percent');
+        if (fill) fill.style.width = `${percent}%`;
+        if (percentEl) percentEl.textContent = `${percent}%`;
+    },
+
+    showNFControls(show) {
+        const section = document.getElementById('nf-conference-section');
+        const panel = document.getElementById('nf-info-panel');
+        if (show) {
+            Utils.hide(section);
+            Utils.show(panel);
+        } else {
+            Utils.show(section);
+            Utils.hide(panel);
+        }
+    },
+
+    getNFItemStatus(scan) {
+        if (!this.state.loadedNF) return '';
+
+        const ean = Storage.normalizeCode(scan.ean);
+        const sku = Storage.normalizeCode(scan.sku);
+
+        const item = this.state.nfConferenceItems.find(i => 
+            i.ean === ean || i.codigoProduto === sku
+        );
+
+        if (!item) return '❌ Não pertence à NF';
+
+        if (scan.nfStatus === 'excess') return '⚠ Excedente';
+        if (scan.nfStatus === 'ok') return '✔ OK';
+
+        return '';
+    },
+
     loadProductForBipagem(product) {
         this.showBipagemTypeSelector(product);
         
@@ -712,6 +969,17 @@ setupEventListeners() {
         }, 3000);
     },
 
+    showNFStatusMessage(message, type = 'info') {
+        const errorMessage = document.getElementById('error-message');
+        errorMessage.textContent = message;
+        errorMessage.className = `error-message ${type}`;
+        Utils.show(errorMessage);
+
+        setTimeout(() => {
+            Utils.hide(errorMessage);
+        }, 3000);
+    },
+
     getProductNotFoundMessage(codigo) {
         return [
             "Nenhum produto correspondente foi localizado.",
@@ -753,6 +1021,10 @@ setupEventListeners() {
             const row = document.createElement('tr');
             row.dataset.ean = Storage.getScanPrimaryCode(scan);
             row.dataset.index = index;
+            const status = this.getNFItemStatus(scan);
+            const statusClass = status.includes('OK') ? 'status-ok' : 
+                              status.includes('Excedente') ? 'status-excess' : 
+                              status.includes('Não pertence') ? 'status-divergence' : '';
             row.innerHTML = `
                 <td>${scan.time}</td>
                 <td>${scan.product}</td>
@@ -763,6 +1035,7 @@ setupEventListeners() {
                         Remover
                     </button>
                 </td>
+                <td class="${statusClass}">${status}</td>
             `;
             tbody.appendChild(row);
         });
@@ -861,6 +1134,11 @@ setupEventListeners() {
         this.state.currentSession = null;
         this.state.sessionTimer = null;
         this.state.sessionScans = [];
+        this.state.loadedNF = null;
+        this.state.nfConferenceItems = [];
+        this.state.nfConfirmedCount = 0;
+        this.state.nfExcessCount = 0;
+        this.state.nfDivergenceCount = 0;
         
         const productInfo = document.getElementById('product-info');
         if (productInfo) Utils.hide(productInfo);

@@ -17,21 +17,50 @@ const SAMPLE_PRODUCTS = [
     { EAN: '7891234567896', SKU: 'SKU007', Produto: 'SSD Samsung 500GB', Estoque: 40 },
     { EAN: '7891234567897', SKU: 'SKU008', Produto: 'Memória RAM 8GB DDR4', Estoque: 60 },
     { EAN: '7891234567898', SKU: 'SKU009', Produto: 'Adaptador HDMI', Estoque: 100 },
-    { EAN: '7891234567899', SKU: 'SKU010', Produto: 'Cabo USB 3.0', Estoque: 120 }
+    { EAN: '7891234567899', SKU: 'SKU010', Produto: 'Cabo USB 3.0', Estoque: 120 },
+    { EAN: '7891234567810', SKU: 'SKU011', Produto: 'Produto Externo', Estoque: 50 }
 ];
 
-/**
- * Carrega dados de teste no sistema
- */
+const SAMPLE_NF_CONFERENCE = {
+    id: 'conf_abc123',
+    conferenceCode: 'CONF-ABC-123',
+    nfInfo: {
+        fornecedor: 'ABC LTDA',
+        numeroNF: '54321',
+        serie: '1',
+        dataEmissao: '2026-06-20'
+    },
+    items: [
+        { codigoProduto: 'SKU001', ean: '7891234567890', description: 'Notebook Dell Inspiron 15', quantity: 10 },
+        { codigoProduto: 'SKU002', ean: '7891234567891', description: 'Monitor LG 24" Full HD', quantity: 20 },
+        { codigoProduto: 'SKU003', ean: '7891234567892', description: 'Mouse Logitech MX Master', quantity: 30 },
+        { codigoProduto: 'SKU004', ean: '7891234567893', description: 'Teclado Mecânico RGB', quantity: 15 },
+        { codigoProduto: 'SKU005', ean: '7891234567894', description: 'Webcam Logitech 1080p', quantity: 25 }
+    ]
+};
+
 function loadTestData() {
     console.log('📥 Carregando dados de teste...');
     Storage.saveProducts(SAMPLE_PRODUCTS);
+    Storage.saveXMLInvoice(SAMPLE_NF_CONFERENCE);
     console.log(`✅ ${SAMPLE_PRODUCTS.length} produtos carregados!`);
+    console.log(`✅ Conferência de NF de teste criada com código: ${SAMPLE_NF_CONFERENCE.conferenceCode}`);
     
     // Recarregar página se estiver em supervisor
     if (App.state.userRole === 'supervisor') {
         location.reload();
     }
+}
+
+function loadNFConferenceTestData() {
+    console.log('📥 Carregando dados de NF para conferência...');
+    Storage.saveProducts(SAMPLE_PRODUCTS);
+    Storage.saveXMLInvoice(SAMPLE_NF_CONFERENCE);
+    console.log(`✅ Conferência de NF criada!`);
+    console.log(`   Código: ${SAMPLE_NF_CONFERENCE.conferenceCode}`);
+    console.log(`   Fornecedor: ${SAMPLE_NF_CONFERENCE.nfInfo.fornecedor}`);
+    console.log(`   NF: ${SAMPLE_NF_CONFERENCE.nfInfo.numeroNF}`);
+    console.log(`   Itens: ${SAMPLE_NF_CONFERENCE.items.length}`);
 }
 
 /**
@@ -121,13 +150,15 @@ window.TestUtils = {
     loadTestDataWithScans,
     clearTestData,
     showTestInfo,
-    simulateRandomScans
+    simulateRandomScans,
+    loadNFConferenceTestData
 };
 
 console.log('📚 Utilitários de teste carregados!');
 console.log('Use no console:');
-console.log('  - TestUtils.loadTestData() - Carrega produtos de teste');
+console.log('  - TestUtils.loadTestData() - Carrega produtos de teste + NF de conferência');
 console.log('  - TestUtils.loadTestDataWithScans() - Carrega produtos + bipagens');
 console.log('  - TestUtils.simulateRandomScans(10) - Simula 10 bipagens aleatórias');
 console.log('  - TestUtils.showTestInfo() - Exibe dados carregados');
 console.log('  - TestUtils.clearTestData() - Limpa todos os dados');
+console.log('  - TestUtils.loadNFConferenceTestData() - Carrega apenas NF para conferência');

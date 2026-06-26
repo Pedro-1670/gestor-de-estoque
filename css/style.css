@@ -536,13 +536,29 @@ body {
 
 .error-message {
     padding: var(--spacing-md);
-    background: var(--color-danger-light);
-    color: var(--color-danger);
-    border-left: 4px solid var(--color-danger);
     border-radius: var(--radius-md);
     margin-top: var(--spacing-md);
     animation: slideDown 0.3s ease-out;
     white-space: pre-line;
+    border-left: 4px solid;
+}
+
+.error-message.error {
+    background: var(--color-danger-light);
+    color: var(--color-danger);
+    border-left-color: var(--color-danger);
+}
+
+.error-message.warning {
+    background: #fff7ed;
+    color: var(--color-warning);
+    border-left-color: var(--color-warning);
+}
+
+.error-message.success {
+    background: var(--color-success-light);
+    color: var(--color-success);
+    border-left-color: var(--color-success);
 }
 
 .error-message.hidden {
@@ -550,8 +566,201 @@ body {
 }
 
 /* ============================================================================
-   HISTÓRICO E TABELAS
-   ============================================================================ */
+    NF CONFERENCE - OPERATOR SCREEN
+    ============================================================================ */
+
+.nf-conference-section {
+    margin-bottom: var(--spacing-xl);
+}
+
+.nf-conference-card {
+    background: var(--color-white);
+    padding: var(--spacing-xl);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+}
+
+.nf-conference-header h2 {
+    font-size: 1.2rem;
+    margin-bottom: var(--spacing-lg);
+    color: var(--color-text);
+}
+
+.nf-conference-form .form-group {
+    margin-bottom: var(--spacing-md);
+}
+
+.nf-conference-form .form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: var(--spacing-sm);
+    color: var(--color-text);
+    font-size: 0.95rem;
+}
+
+.nf-or-divider {
+    text-align: center;
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+    margin: var(--spacing-md) 0;
+}
+
+.nf-info-panel {
+    background: var(--color-white);
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    margin-bottom: var(--spacing-xl);
+    font-family: monospace;
+}
+
+.nf-info-panel.hidden {
+    display: none;
+}
+
+.nf-info-separator {
+    text-align: center;
+    color: var(--color-border);
+    margin: var(--spacing-md) 0;
+    font-size: 0.9rem;
+}
+
+.nf-conference-details h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin-bottom: var(--spacing-lg);
+    text-align: center;
+}
+
+.nf-detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--spacing-sm) 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.nf-detail-label {
+    font-weight: 600;
+    color: var(--color-text-secondary);
+}
+
+.nf-detail-value {
+    color: var(--color-text);
+}
+
+.nf-progress-container {
+    margin-top: var(--spacing-lg);
+}
+
+.nf-progress-label {
+    display: block;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.nf-progress-bar {
+    width: 100%;
+    height: 12px;
+    background: var(--color-bg);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    margin-bottom: var(--spacing-sm);
+}
+
+.nf-progress-fill {
+    height: 100%;
+    background: var(--color-primary);
+    transition: width 0.3s ease;
+    width: 0%;
+}
+
+.nf-progress-percent {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+}
+
+.nf-message {
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    margin-top: var(--spacing-md);
+    font-weight: 600;
+}
+
+.nf-message.success {
+    background: var(--color-success-light);
+    color: var(--color-success);
+    border-left: 4px solid var(--color-success);
+}
+
+.nf-message.warning {
+    background: #fff7ed;
+    color: var(--color-warning);
+    border-left: 4px solid var(--color-warning);
+}
+
+.nf-message.error {
+    background: var(--color-danger-light);
+    color: var(--color-danger);
+    border-left: 4px solid var(--color-danger);
+}
+
+.nf-completed-section {
+    background: var(--color-bg);
+    padding: var(--spacing-xl);
+    border-radius: var(--radius-md);
+    margin-top: var(--spacing-xl);
+}
+
+.nf-completed-section h3 {
+    font-size: 1.2rem;
+    color: var(--color-success);
+    margin-bottom: var(--spacing-lg);
+}
+
+.nf-completed-details {
+    margin-bottom: var(--spacing-lg);
+}
+
+.nf-completed-details dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+.nf-completed-details dt {
+    font-weight: 600;
+    color: var(--color-text-secondary);
+}
+
+.nf-completed-details dd {
+    color: var(--color-text);
+    font-weight: 600;
+}
+
+.history-table th:last-child,
+.history-table td:last-child {
+    text-align: center;
+    min-width: 80px;
+}
+
+.status-ok {
+    color: var(--color-success);
+}
+
+.status-excess {
+    color: var(--color-warning);
+}
+
+.status-divergence {
+    color: var(--color-danger);
+}
+
+/* ============================================================================
+    HISTÓRICO E TABELAS
+    ============================================================================ */
 
 .history-section {
     background: var(--color-white);

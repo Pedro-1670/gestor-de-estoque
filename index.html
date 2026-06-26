@@ -127,6 +127,84 @@
 
                 <!-- Conteúdo principal -->
                 <main class="operator-main">
+                    <!-- Seção de Conferência de NF -->
+                    <section id="nf-conference-section" class="nf-conference-section" aria-label="Conferência de Nota Fiscal">
+                        <article class="nf-conference-card">
+                            <header class="nf-conference-header">
+                                <h2>📦 Conferência de Nota Fiscal</h2>
+                            </header>
+                            <div class="nf-conference-form">
+                                <div class="form-group">
+                                    <label for="nf-fornecedor-input">Fornecedor:</label>
+                                    <input
+                                        type="text"
+                                        id="nf-fornecedor-input"
+                                        class="form-input"
+                                        placeholder="Digite o nome do fornecedor..."
+                                    >
+                                </div>
+                                <div class="form-group">
+                                    <label for="nf-number-input">Número da NF:</label>
+                                    <input
+                                        type="text"
+                                        id="nf-number-input"
+                                        class="form-input"
+                                        placeholder="Digite o número da NF..."
+                                    >
+                                </div>
+                                <div class="nf-or-divider">ou</div>
+                                <div class="form-group">
+                                    <label for="nf-code-input">Código da Conferência:</label>
+                                    <input
+                                        type="text"
+                                        id="nf-code-input"
+                                        class="form-input"
+                                        placeholder="Código gerado pelo supervisor..."
+                                    >
+                                </div>
+                                <button id="load-nf-btn" class="btn btn--success btn--large" style="width: 100%;">
+                                    Carregar Nota
+                                </button>
+                            </div>
+                        </article>
+                    </section>
+
+                    <!-- Painel de Informações da NF (após carregar) -->
+                    <section id="nf-info-panel" class="nf-info-panel hidden" aria-label="Informações da conferência">
+                        <div class="nf-info-separator">══════════════════════════════</div>
+                        <div class="nf-conference-details">
+                            <h3>CONFERÊNCIA DA NOTA</h3>
+                            <div class="nf-detail-row">
+                                <span class="nf-detail-label">Fornecedor:</span>
+                                <span id="nf-display-fornecedor" class="nf-detail-value">-</span>
+                            </div>
+                            <div class="nf-detail-row">
+                                <span class="nf-detail-label">NF:</span>
+                                <span id="nf-display-nf" class="nf-detail-value">-</span>
+                            </div>
+                            <div class="nf-detail-row">
+                                <span class="nf-detail-label">Itens:</span>
+                                <span id="nf-display-items" class="nf-detail-value">0</span>
+                            </div>
+                            <div class="nf-detail-row">
+                                <span class="nf-detail-label">Conferidos:</span>
+                                <span id="nf-display-confirmed" class="nf-detail-value">0</span>
+                            </div>
+                            <div class="nf-detail-row">
+                                <span class="nf-detail-label">Pendentes:</span>
+                                <span id="nf-display-pending" class="nf-detail-value">0</span>
+                            </div>
+                            <div class="nf-progress-container">
+                                <span class="nf-progress-label">Progresso</span>
+                                <div class="nf-progress-bar">
+                                    <div id="nf-progress-fill" class="nf-progress-fill"></div>
+                                </div>
+                                <span id="nf-progress-percent" class="nf-progress-percent">0%</span>
+                            </div>
+                            <div class="nf-info-separator">══════════════════════════════</div>
+                        </div>
+                    </section>
+
                     <!-- Seção de Bipagem -->
                     <section class="barcode-section" aria-label="Área de leitura de código de barras">
                         <div class="product-search-wrapper">
@@ -227,15 +305,16 @@
                         <div class="table-responsive">
                             <table id="history-table" class="history-table">
                                 <caption>Lista de produtos escaneados nesta sessão</caption>
-                                <thead>
-                                    <tr>
-                                        <th>Hora</th>
-                                        <th>Produto</th>
-                                        <th>SKU</th>
-                                        <th>EAN</th>
-                                        <th>Ação</th>
-                                    </tr>
-                                </thead>
+<thead>
+                                         <tr>
+                                             <th>Hora</th>
+                                             <th>Produto</th>
+                                             <th>SKU</th>
+                                             <th>EAN</th>
+                                             <th>Ação</th>
+                                             <th>Status</th>
+                                         </tr>
+                                     </thead>
                                 <tbody id="history-body">
                                 </tbody>
                             </table>
