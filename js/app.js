@@ -20,8 +20,6 @@ const App = {
         pendingXMLImport: null,
         pendingMultipleXMLImports: null,
         bipagemReportRows: [],
-        conferenceItems: [],
-        conferenceSession: null,
         manualInvoiceItems: [],
         // NF Conference state
         loadedNF: null,
@@ -32,7 +30,7 @@ const App = {
     },
 
     permissions: {
-        supervisor: ['dashboard', 'history', 'divergences', 'not-inventoried', 'import', 'import-xml', 'conference', 'reports', 'config', 'reconciliation', 'manual-invoice', 'product-catalog', 'inventory-quantities', 'gsheets'],
+        supervisor: ['dashboard', 'history', 'divergences', 'data-import', 'invoices', 'reports', 'config'],
         operator: ['scan', 'history', 'finish']
     },
 
@@ -65,7 +63,7 @@ const App = {
         
         this.setupEventListeners();
 
-        const products = Storage.getProducts() || [];
+        const products = DataService.getProducts() || [];
         console.log("Produtos carregados:", products.length);
         console.table(products);
 
@@ -116,6 +114,7 @@ setupEventListeners() {
         // Operador
         document.getElementById('barcode-input')?.addEventListener('keypress', (e) => this.handleBarcodeScan(e));
         document.getElementById('load-nf-btn')?.addEventListener('click', () => this.loadNFConference());
+        document.getElementById('cancel-nf-btn')?.addEventListener('click', () => this.cancelNFConference());
         document.getElementById('product-search-input')?.addEventListener('input', (e) => this.handleProductSearchInput(e));
         document.getElementById('product-search-input')?.addEventListener('change', (e) => this.handleProductSearchSelect(e));
         document.getElementById('product-search-input')?.addEventListener('keydown', (e) => this.handleProductSearchKeydown(e));
@@ -132,7 +131,7 @@ setupEventListeners() {
             btn.addEventListener('click', (e) => this.handleTabSwitch(e));
         });
 
-        // Supervisor - Importação
+        // Supervisor - Dados/Importação
         document.getElementById('excel-file-input')?.addEventListener('change', (e) => this.handleFileUpload(e, 'catalog'));
         document.getElementById('inventory-qty-file-input')?.addEventListener('change', (e) => this.handleFileUpload(e, 'quantities'));
         document.getElementById('confirm-import')?.addEventListener('click', () => this.confirmImport());
@@ -140,6 +139,11 @@ setupEventListeners() {
         document.getElementById('xml-file-input')?.addEventListener('change', (e) => this.handleXMLFileUpload(e));
         document.getElementById('confirm-xml-import')?.addEventListener('click', () => this.confirmXMLImport());
         document.getElementById('cancel-xml-import')?.addEventListener('click', () => this.cancelXMLImport());
+
+        // Supervisor - Conector único de Google Sheets (Catálogo, Quantidades, Base de Estoque)
+        document.querySelectorAll('[data-sheet-target]').forEach(btn => {
+            btn.addEventListener('click', () => this.importFromGoogleSheet(btn.dataset.sheetTarget));
+        });
 
         // Supervisor - Exportação
         document.querySelectorAll('[data-export-current]').forEach(btn => {
@@ -159,26 +163,20 @@ setupEventListeners() {
 
         // Supervisor - Filtros
         document.getElementById('apply-filters')?.addEventListener('click', () => this.applyFilters());
+        document.getElementById('divergence-type-filter')?.addEventListener('change', () => this.renderDivergencesTable());
 
-        // Google Sheets
-        document.getElementById('connect-gsheets-catalog')?.addEventListener('click', () => this.openGoogleSheetsModal('catalog'));
-        document.getElementById('connect-gsheets-qty')?.addEventListener('click', () => this.openGoogleSheetsModal('quantities'));
-        document.getElementById('sync-gsheets-catalog')?.addEventListener('click', () => this.syncGoogleSheetsData('catalog'));
-        document.getElementById('sync-gsheets-qty')?.addEventListener('click', () => this.syncGoogleSheetsData('quantities'));
+        // Notas Fiscais - alternância entre sub-abas (Importar XML / Nota Manual)
+        document.querySelectorAll('.invoice-subtab-btn').forEach(btn => {
+            btn.addEventListener('click', () => this.showInvoiceSubtab(btn.dataset.subtab));
+        });
 
         // Manual Invoice
         document.getElementById('add-invoice-item')?.addEventListener('click', () => this.addManualInvoiceItem());
         document.getElementById('save-manual-invoice')?.addEventListener('click', () => this.saveManualInvoice());
 
-        // Reconciliation
-        document.getElementById('run-reconciliation')?.addEventListener('click', () => this.runReconciliation());
-        document.getElementById('export-reconciliation')?.addEventListener('click', () => this.exportReconciliation());
-
         // Multiple XML
         document.getElementById('xml-file-input')?.addEventListener('change', (e) => this.handleMultipleXMLFileUpload(e));
         document.getElementById('confirm-xml-import')?.addEventListener('click', () => this.confirmMultipleXMLImport());
-
-        
 
         // Drag and drop para importação XLSX
         const importArea = document.querySelector('.import-area:not(.xml-import-area)');
@@ -205,11 +203,6 @@ setupEventListeners() {
                 }
             });
         }
-
-        // Conference mode
-        document.getElementById('start-conf-btn')?.addEventListener('click', () => this.startConference());
-        document.getElementById('conf-barcode-input')?.addEventListener('keypress', (e) => this.handleConferenceScan(e));
-        document.getElementById('finish-conf-btn')?.addEventListener('click', () => this.finishConference());
     },
 
     handleLogin(event) {
@@ -315,13 +308,8 @@ setupEventListeners() {
         Storage.clearCurrentSession();
         document.getElementById('login-form').reset();
         document.getElementById('operator-start-form').reset();
-        this.hideLoginMessage();
-        this.hideOperatorMessage();
         this.showScreen('login-screen');
-        setTimeout(() => {
-            const nameInput = document.getElementById('operator-name-input');
-            if (nameInput) nameInput.focus();
-        }, 100);
+        this.showOperatorStartForm();
     },
 
     restoreAuthSession() {
@@ -487,6 +475,12 @@ setupEventListeners() {
         console.log("Código recebido:", codigo);
         barcodeInput.value = "";
 
+        if (this.state.loadedNF) {
+            this.handleNFConferenceBarcodeScan(codigo);
+            this.resetBarcodeInput();
+            return;
+        }
+
         const produto = Storage.getProduct(codigo);
         console.log("Produto encontrado:", produto);
 
@@ -497,12 +491,49 @@ setupEventListeners() {
             return;
         }
 
-        if (this.state.loadedNF) {
-            this.recordNFConferenceScan(produto, codigo);
-        } else {
-            this.recordScan(produto, codigo);
-        }
+        this.recordScan(produto, codigo);
         this.resetBarcodeInput();
+    },
+
+    /**
+     * Durante a conferência de NF, o código bipado pode pertencer a um item
+     * da nota que nunca foi cadastrado no catálogo de produtos (comum em
+     * notas manuais). Por isso a busca prioriza os itens da NF carregada -
+     * o catálogo só é usado para enriquecer a exibição (estoque, categoria).
+     * Só mostra "produto não encontrado" quando o código não bate nem com o
+     * catálogo nem com nenhum item da NF.
+     */
+    handleNFConferenceBarcodeScan(codigo) {
+        const normalizedCode = Storage.normalizeCode(codigo);
+        const produto = Storage.getProduct(codigo);
+
+        const nfItem = this.state.nfConferenceItems.find(item => {
+            if (item.ean && item.ean === normalizedCode) return true;
+            if (item.codigoProduto && item.codigoProduto === normalizedCode) return true;
+            if (produto) {
+                const productEan = Storage.getProductPrimaryCode(produto);
+                const productSku = Storage.normalizeCode(produto.SKU);
+                if (item.ean && item.ean === productEan) return true;
+                if (item.codigoProduto && item.codigoProduto === productSku) return true;
+            }
+            return false;
+        });
+
+        if (!produto && !nfItem) {
+            this.showProductError(this.getProductNotFoundMessage(codigo));
+            return;
+        }
+
+        // Produto "virtual" montado a partir do item da NF quando ele não
+        // existe no catálogo (ex: nota fiscal manual referenciando um EAN
+        // que ainda não foi importado como produto).
+        const effectiveProduct = produto || {
+            SKU: nfItem.codigoProduto || '',
+            EAN: nfItem.ean || normalizedCode,
+            Produto: nfItem.description || 'Produto da Nota (não cadastrado no catálogo)'
+        };
+
+        this.recordNFConferenceScan(effectiveProduct, codigo);
     },
 
     recordNFConferenceScan(product, codigo) {
@@ -854,6 +885,28 @@ const modalHtml = `
             Utils.show(section);
             Utils.hide(panel);
         }
+    },
+
+    cancelNFConference() {
+        if (!this.state.loadedNF) return;
+
+        if (!confirm('Sair da conferência desta Nota Fiscal? As bipagens já registradas continuam no histórico da sessão, mas a conferência não será marcada como finalizada.')) {
+            return;
+        }
+
+        this.state.loadedNF = null;
+        this.state.nfConferenceItems = [];
+        this.state.nfConfirmedCount = 0;
+        this.state.nfExcessCount = 0;
+        this.state.nfDivergenceCount = 0;
+
+        document.getElementById('nf-fornecedor-input').value = '';
+        document.getElementById('nf-number-input').value = '';
+        document.getElementById('nf-code-input').value = '';
+
+        this.showNFControls(false);
+        this.updateHistoryTable();
+        document.getElementById('barcode-input')?.focus();
     },
 
     getNFItemStatus(scan) {
@@ -1541,14 +1594,16 @@ const modalHtml = `
     },
 
     exportDivergenceReport() {
-        const discrepancies = Storage.getReconciliationData();
-        const data = discrepancies.map(d => ({
+        const typeLabels = { 'not-inventoried': 'Não Inventariado', excess: 'Sobra', shortage: 'Falta' };
+        const divergences = Storage.getUnifiedDivergences().filter(d => d.type !== 'ok');
+        const data = divergences.map(d => ({
             SKU: d.sku || '',
             EAN: d.ean,
+            Produto: d.product,
             Esperado: d.expected,
-            Contado: d.scanned,
+            Contado: d.counted,
             Diferença: d.difference,
-            Tipo: d.type === 'shortage' ? 'Falta' : 'Sobra'
+            Tipo: typeLabels[d.type] || d.type
         }));
 
         Utils.createExcelFromData(data, `divergencias_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -1698,29 +1753,14 @@ const modalHtml = `
             case 'history':
                 this.updateHistoryTab();
                 break;
-            case 'reconciliation':
-                this.updateReconciliationTab();
-                break;
             case 'divergences':
-                this.updateDiscrepanciesTab();
+                this.updateDivergencesTab();
                 break;
-            case 'not-inventoried':
-                this.updateNotInventoriedTab();
+            case 'data-import':
+                this.updateDataImportTab();
                 break;
-            case 'import':
-                this.updateImportTab();
-                break;
-            case 'product-catalog':
-                this.updateProductCatalogTab();
-                break;
-            case 'inventory-quantities':
-                this.updateInventoryQuantitiesTab();
-                break;
-            case 'manual-invoice':
+            case 'invoices':
                 this.updateManualInvoiceTab();
-                break;
-            case 'conference':
-                this.updateConferenceTab();
                 break;
             case 'reports':
                 this.updateReportsTab();
@@ -1829,51 +1869,58 @@ const modalHtml = `
         });
     },
 
-    updateDiscrepanciesTab() {
-        const discrepancies = Storage.getDiscrepancies();
+    updateDivergencesTab() {
+        this.renderDivergencesTable();
+    },
+
+    renderDivergencesTable() {
         const tbody = document.getElementById('divergences-body');
+        if (!tbody) return;
+
+        const filterSelect = document.getElementById('divergence-type-filter');
+        const filterType = filterSelect ? filterSelect.value : 'all';
+
+        const typeLabels = {
+            'not-inventoried': '📦 Não Inventariado',
+            excess: '✅ Sobra',
+            shortage: '❌ Falta'
+        };
+
+        const divergences = Storage.getUnifiedDivergences()
+            .filter(div => div.type !== 'ok')
+            .filter(div => filterType === 'all' || div.type === filterType);
 
         tbody.innerHTML = '';
-        discrepancies.forEach(disc => {
+        divergences.forEach(div => {
             const row = document.createElement('tr');
-            row.classList.add(disc.type === 'shortage' ? 'shortage' : 'excess');
+            row.classList.add(div.type);
             row.innerHTML = `
-                <td>${Storage.normalizeCode(disc.sku)}</td>
-                <td>${Storage.normalizeCode(disc.product)}</td>
-                <td>${disc.systemStock}</td>
-                <td>${disc.countedStock}</td>
-                <td><strong>${disc.difference > 0 ? '+' : ''}${disc.difference}</strong></td>
-                <td>${disc.type === 'shortage' ? '❌ Falta' : '✅ Sobra'}</td>
+                <td>${Storage.normalizeCode(div.sku)}</td>
+                <td>${Storage.normalizeCode(div.ean)}</td>
+                <td>${Storage.normalizeCode(div.product)}</td>
+                <td>${div.expected}</td>
+                <td>${div.counted}</td>
+                <td><strong>${div.difference > 0 ? '+' : ''}${div.difference}</strong></td>
+                <td>${typeLabels[div.type] || div.type}</td>
             `;
             tbody.appendChild(row);
         });
     },
 
-    updateNotInventoriedTab() {
-        const notInventoried = Storage.getNotInventoriedProducts();
-        const tbody = document.getElementById('not-inventoried-body');
-
-        tbody.innerHTML = '';
-        notInventoried.forEach(product => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td>${Storage.normalizeCode(product.SKU)}</td>
-                <td>${Storage.getProductPrimaryCode(product)}</td>
-                <td>${Storage.getProductDisplayName(product)}</td>
-                <td>${Storage.getProductStock(product)}</td>
-            `;
-            tbody.appendChild(row);
-        });
-    },
-
-    updateImportTab() {
+    updateDataImportTab() {
         const products = Storage.getProducts() || [];
-        const catalog = Storage.getProductCatalog() || [];
-        const quantities = Storage.getInventoryQuantities() || [];
-        
-        document.getElementById('current-products-count').textContent = `${products.length} produtos no sistema`;
-        document.getElementById('catalog-count').textContent = `${catalog.length} produtos no catálogo`;
-        document.getElementById('qty-count').textContent = `${quantities.length} itens de quantidade`;
+
+        const currentCountEl = document.getElementById('current-products-count');
+        if (currentCountEl) currentCountEl.textContent = `${products.length} produtos no sistema`;
+
+        const stockBaseCountEl = document.getElementById('stock-base-count');
+        if (stockBaseCountEl) {
+            const stockBaseCount = (DataService.getStockBase() || []).length;
+            stockBaseCountEl.textContent = `${stockBaseCount.toLocaleString('pt-BR')} produtos na Base de Estoque`;
+        }
+
+        this.renderCatalogTable();
+        this.renderQuantitiesTable();
     },
 
     updateReportsTab() {
@@ -1896,14 +1943,14 @@ const modalHtml = `
         this.updateCollaboratorReportSummary();
     },
 
-    updateProductCatalogTab() {
+    renderCatalogTable() {
         const products = Storage.getProductCatalog() || [];
         const tbody = document.getElementById('catalog-body');
         const countEl = document.getElementById('catalog-count');
-        
+
         if (countEl) countEl.textContent = `${products.length} produtos`;
         if (!tbody) return;
-        
+
         tbody.innerHTML = '';
         products.slice(0, 50).forEach(product => {
             const row = document.createElement('tr');
@@ -1917,14 +1964,14 @@ const modalHtml = `
         });
     },
 
-    updateInventoryQuantitiesTab() {
+    renderQuantitiesTable() {
         const quantities = Storage.getInventoryQuantities() || [];
         const tbody = document.getElementById('qty-body');
         const countEl = document.getElementById('qty-count');
-        
+
         if (countEl) countEl.textContent = `${quantities.length} itens`;
         if (!tbody) return;
-        
+
         tbody.innerHTML = '';
         quantities.forEach(qty => {
             const row = document.createElement('tr');
@@ -1942,69 +1989,86 @@ const modalHtml = `
         if (dateInput) dateInput.valueAsDate = new Date();
     },
 
-    openGoogleSheetsModal(source) {
-        const url = prompt('Cole a URL do Google Sheet (formato CSV):', '');
-        if (!url) return;
-        
-        const config = { source, gsheetUrl: url, connectedAt: new Date().toISOString() };
-        Storage.saveGoogleSheetsConfig(config);
-        
-        const statusEl = document.getElementById(`gsheets-${source === 'catalog' ? 'catalog' : 'qty'}-status`);
-        if (statusEl) {
-            statusEl.textContent = '✓ Conectado';
-            statusEl.style.color = 'green';
-        }
+    showInvoiceSubtab(name) {
+        document.querySelectorAll('.invoice-subtab-btn').forEach(btn => {
+            const isActive = btn.dataset.subtab === name;
+            btn.classList.toggle('invoice-subtab-btn--active', isActive);
+            btn.classList.toggle('btn--primary', isActive);
+            btn.classList.toggle('btn--secondary', !isActive);
+        });
+        document.querySelectorAll('.invoice-subtab').forEach(panel => {
+            panel.classList.toggle('hidden', panel.id !== `invoice-subtab-${name}`);
+        });
     },
 
-    async syncGoogleSheetsData(source) {
-        const config = Storage.getGoogleSheetsConfig();
-        if (!config?.gsheetUrl) {
-            alert('Google Sheet não configurado.');
-            return;
+    /**
+     * Conector único de Google Sheets, reaproveitado pelas 3 seções da aba
+     * Dados/Importação (Catálogo, Quantidades, Base de Estoque). `target`
+     * define qual método do DataService chamar e onde salvar o resultado -
+     * o restante (ler inputs, mostrar status, tratar erro) é compartilhado.
+     */
+    async importFromGoogleSheet(target) {
+        const idInput = document.getElementById(`sheet-${target}-id`);
+        const nameInput = document.getElementById(`sheet-${target}-name`);
+        const statusEl = document.getElementById(`sheet-${target}-status`);
+        const resultEl = document.getElementById(`sheet-${target}-result`);
+        const btn = document.querySelector(`[data-sheet-target="${target}"]`);
+
+        if (!idInput || !nameInput || !statusEl || !resultEl) return;
+
+        const spreadsheetId = idInput.value.trim();
+        const sheetName = nameInput.value.trim();
+
+        Utils.removeClass(statusEl, 'hidden');
+        resultEl.className = 'import-result';
+        resultEl.textContent = '⏳ Importando...';
+
+        if (btn) {
+            btn.disabled = true;
+            btn.dataset.originalText = btn.dataset.originalText || btn.textContent;
+            btn.textContent = '⏳ Importando...';
         }
-        
+
         try {
-            const response = await fetch(config.gsheetUrl);
-            const text = await response.text();
-            
-            const lines = text.split('\n').map(line => line.split(','));
-            const headers = lines[0];
-            const rows = lines.slice(1).filter(line => line.some(cell => cell.trim()));
-            
-            if (source === 'catalog') {
-                const products = rows.map(row => {
-                    const p = {};
-                    headers.forEach((h, i) => {
-                        p[h.trim()] = row[i] || '';
-                    });
-                    return p;
-                });
-                Storage.saveProductCatalog(products);
-                this.updateProductCatalogTab();
+            let resultado;
+
+            if (target === 'catalog') {
+                resultado = await DataService.importProductCatalogFromSheet(spreadsheetId, sheetName);
+                if (resultado.success) {
+                    Storage.saveProductCatalog(resultado.products);
+                    this.renderCatalogTable();
+                }
+            } else if (target === 'quantities') {
+                resultado = await DataService.importInventoryQuantitiesFromSheet(spreadsheetId, sheetName);
+                if (resultado.success) {
+                    Storage.saveInventoryQuantities(resultado.quantities);
+                    this.renderQuantitiesTable();
+                }
             } else {
-                const quantities = rows.map(row => {
-                    const q = {};
-                    headers.forEach((h, i) => {
-                        q[h.trim()] = row[i] || '';
-                    });
-                    return {
-                        ean: q.EAN || q.ean || '',
-                        sku: q.SKU || q.sku || '',
-                        expectedQuantity: Number(q.ExpectedQuantity || q.expectedQuantity || 0)
-                    };
-                }).filter(q => q.ean || q.sku);
-                Storage.saveInventoryQuantities(quantities);
-                this.updateInventoryQuantitiesTab();
+                resultado = await DataService.importStockBase(spreadsheetId, sheetName);
+                if (resultado.success) {
+                    const countEl = document.getElementById('stock-base-count');
+                    if (countEl) countEl.textContent = `${DataService.getStockBase().length.toLocaleString('pt-BR')} produtos na Base de Estoque`;
+                }
             }
-            
-            const statusEl = document.getElementById(`gsheets-${source === 'catalog' ? 'catalog' : 'qty'}-status`);
-            if (statusEl) {
-                statusEl.textContent = `✓ Última sync: ${new Date().toLocaleTimeString('pt-BR')}`;
+
+            if (resultado.success) {
+                resultEl.className = 'import-result success';
+                resultEl.textContent = `✅ ${resultado.message} ${resultado.count.toLocaleString('pt-BR')} itens carregados.`;
+            } else {
+                resultEl.className = 'import-result error';
+                resultEl.textContent = `❌ ${resultado.message}`;
             }
-            
         } catch (error) {
-            console.error('Sync error:', error);
-            alert('Erro ao sincronizar: ' + error.message);
+            // Rede de segurança extra: os métodos do DataService já não lançam exceções
+            console.error(`Erro inesperado ao importar (${target}):`, error);
+            resultEl.className = 'import-result error';
+            resultEl.textContent = '❌ Erro inesperado ao importar. Tente novamente.';
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = btn.dataset.originalText || '🔗 Importar do Google Sheets';
+            }
         }
     },
 
@@ -2089,44 +2153,6 @@ const modalHtml = `
         this.state.manualInvoiceItems = [];
         this.renderManualInvoiceItems();
         document.getElementById('manual-invoice-form').reset();
-    },
-
-    runReconciliation() {
-        const discrepancies = Storage.getReconciliationData();
-        const tbody = document.getElementById('reconciliation-body');
-        const countEl = document.getElementById('recon-div-count');
-        
-        if (countEl) countEl.textContent = discrepancies.length;
-        if (!tbody) return;
-        
-        tbody.innerHTML = '';
-        discrepancies.forEach(disc => {
-            const row = document.createElement('tr');
-            const diffColor = disc.type === 'shortage' ? 'diff-red' : 'diff-green';
-            row.innerHTML = `
-                <td>${disc.sku || '-'}</td>
-                <td>${disc.ean}</td>
-                <td style="text-align: right;">${disc.expected}</td>
-                <td style="text-align: right;">${disc.scanned}</td>
-                <td style="text-align: right;" class="${diffColor}"><strong>${disc.difference > 0 ? '+' : ''}${disc.difference}</strong></td>
-                <td>${disc.type === 'shortage' ? '❌ Falta' : '✅ Sobra'}</td>
-            `;
-            tbody.appendChild(row);
-        });
-    },
-
-    exportReconciliation() {
-        const discrepancies = Storage.getReconciliationData();
-        const data = discrepancies.map(d => ({
-            SKU: d.sku || '',
-            EAN: d.ean,
-            Esperado: d.expected,
-            Contado: d.scanned,
-            Diferença: d.difference,
-            Tipo: d.type === 'shortage' ? 'Falta' : 'Sobra'
-        }));
-        
-        Utils.createExcelFromData(data, `reconciliacao_${new Date().toISOString().split('T')[0]}.xlsx`);
     },
 
     updateCollaboratorReportSummary() {
@@ -2387,140 +2413,6 @@ const modalHtml = `
         this.state.pendingXMLImport = null;
     },
 
-    /**
-     * CONFERÊNCIA XML
-     */
-
-    updateConferenceTab() {
-        if (this.state.conferenceItems.length === 0) {
-            const body = document.getElementById('conference-body');
-            if (body) body.innerHTML = '';
-            return;
-        }
-
-        const nfInfo = this.state.pendingXMLImport?.nfInfo || {};
-        document.getElementById('conf-fornecedor').textContent = nfInfo.fornecedor || '-';
-        document.getElementById('conf-nf').textContent = nfInfo.numeroNF || '-';
-        document.getElementById('conf-serie').textContent = nfInfo.serie || '-';
-        document.getElementById('conf-data').textContent = nfInfo.dataEmissao || '-';
-
-        this.renderConferenceTable();
-        this.updateConferenceSummary();
-    },
-
-    renderConferenceTable() {
-        const body = document.getElementById('conference-body');
-        if (!body) return;
-
-        body.innerHTML = '';
-
-        this.state.conferenceItems.forEach(item => {
-            const tr = document.createElement('tr');
-            const diff = item.counted - item.expected;
-            let diffColor = '';
-            if (item.counted === 0) diffColor = 'diff-red';
-            else if (diff < 0) diffColor = 'diff-yellow';
-            else if (diff === 0) diffColor = 'diff-green';
-            else diffColor = 'diff-blue';
-
-            tr.innerHTML = `
-                <td>${item.codigoProduto || '-'}</td>
-                <td>${item.ean || '-'}</td>
-                <td>${item.description || '-'}</td>
-                <td style="text-align: right;">${item.expected}</td>
-                <td style="text-align: right;">${item.counted}</td>
-                <td style="text-align: right;" class="${diffColor}">${diff > 0 ? '+' : ''}${diff}</td>
-            `;
-            body.appendChild(tr);
-        });
-    },
-
-    updateConferenceSummary() {
-        const expected = this.state.conferenceItems.reduce((sum, item) => sum + item.expected, 0);
-        const counted = this.state.conferenceItems.reduce((sum, item) => sum + item.counted, 0);
-        const diff = counted - expected;
-
-        document.getElementById('conf-total-expected').textContent = expected;
-        document.getElementById('conf-total-counted').textContent = counted;
-        document.getElementById('conf-total-diff').textContent = diff;
-    },
-
-    startConference() {
-        if (!this.state.pendingXMLImport) {
-            alert('Carregue um XML primeiro.');
-            return;
-        }
-
-        this.state.conferenceItems = this.state.pendingXMLImport.items.map(item => ({
-            codigoProduto: item.codigoProduto,
-            ean: item.ean,
-            description: item.description,
-            expected: item.quantity,
-            counted: 0
-        }));
-
-        this.state.conferenceSession = {
-            startTime: new Date(),
-            operator: this.state.currentOperatorName || this.state.currentUser
-        };
-
-        this.showScreen('supervisor-screen');
-        this.showTab('conference');
-        this.renderConferenceTable();
-        this.updateConferenceSummary();
-
-        const input = document.getElementById('conf-barcode-input');
-        if (input) input.focus();
-    },
-
-    handleConferenceScan(event) {
-        if (!this.state.conferenceSession) return;
-        if (event.key !== 'Enter') return;
-
-        const barcode = event.target.value.trim();
-        if (!barcode) return;
-
-        const item = this.state.conferenceItems.find(i => 
-            i.ean === barcode || i.codigoProduto === barcode
-        );
-
-        if (item) {
-            item.counted += 1;
-            this.renderConferenceTable();
-            this.updateConferenceSummary();
-        }
-
-        event.target.value = '';
-        event.target.focus();
-    },
-
-    finishConference() {
-        if (!this.state.conferenceSession) return;
-
-        const items = this.state.conferenceItems;
-        const expected = items.reduce((sum, i) => sum + i.expected, 0);
-        const counted = items.reduce((sum, i) => sum + i.counted, 0);
-        const diff = counted - expected;
-
-        const report = `Conferência Finalizada\n\n` +
-            `Fornecedor: ${this.state.pendingXMLImport?.nfInfo?.fornecedor || '-'}\n` +
-            `NF: ${this.state.pendingXMLImport?.nfInfo?.numeroNF || '-'}\n` +
-            `Série: ${this.state.pendingXMLImport?.nfInfo?.serie || '-'}\n` +
-            `Data: ${this.state.pendingXMLImport?.nfInfo?.dataEmissao || '-'}\n` +
-            `Operador: ${this.state.conferenceSession.operator}\n\n` +
-            `Total Esperado: ${expected}\n` +
-            `Total Contado: ${counted}\n` +
-            `Diferença: ${diff > 0 ? '+' : ''}${diff}`;
-
-        alert(report);
-
-        this.state.conferenceItems = [];
-        this.state.conferenceSession = null;
-        this.state.pendingXMLImport = null;
-
-        const body = document.getElementById('conference-body');
-        if (body) body.innerHTML = '';
-    },
 
     /**
      * IMPORTAÇÃO DE EXCEL
@@ -2536,11 +2428,6 @@ const modalHtml = `
             const rows = await Utils.parseExcelFile(file);
             console.log('Importação Excel iniciada:', file.name, 'Tamanho:', file.size, 'Linhas:', rows.length);
 
-            const rowsWithoutCode = rows.filter(row => !this.hasImportCode(row)).length;
-            if (rowsWithoutCode > 0) {
-                console.warn('Linhas importadas sem código identificável:', rowsWithoutCode);
-            }
-
             if (!rows || rows.length === 0) {
                 alert('Arquivo Excel vazio ou inválido.');
                 return;
@@ -2552,23 +2439,25 @@ const modalHtml = `
                     sku: Storage.normalizeCode(row.SKU || row.sku),
                     expectedQuantity: Number(Storage.normalizeStock(row.ExpectedQuantity ?? row.expectedQuantity ?? row.Estoque ?? row.Stock))
                 })).filter(q => q.ean);
-                
+
                 Storage.saveInventoryQuantities(quantities);
                 document.getElementById('inventory-qty-file-input').value = '';
                 alert(`${quantities.length} quantidades de estoque importadas com sucesso!`);
-                this.updateInventoryQuantitiesTab();
+                this.renderQuantitiesTable();
                 return;
             }
 
-            const hasRequiredFields = rows.some(row => this.hasImportCode(row));
-
-            if (!hasRequiredFields) {
-                alert('Arquivo deve conter colunas: EAN, SKU, Produto, Estoque (ou Produto, Stock)');
-                return;
+            // Não bloqueia a importação por causa da estrutura da planilha: os
+            // cabeçalhos já passam por reconhecimento flexível (Utils.normalizeExcelHeader)
+            // e, na falta de qualquer código identificável, uma linha ainda assim é
+            // importada com um código gerado automaticamente (ver normalizeImportedProduct).
+            const rowsWithoutCode = rows.filter(row => !this.hasImportCode(row)).length;
+            if (rowsWithoutCode > 0) {
+                console.warn('Linhas importadas sem código identificável (código será gerado automaticamente):', rowsWithoutCode);
             }
 
             this.state.pendingImport = rows;
-            this.showImportPreview(rows);
+            this.showImportPreview(rows, rowsWithoutCode);
 
         } catch (error) {
             console.error('Erro ao importar:', error);
@@ -2576,7 +2465,7 @@ const modalHtml = `
         }
     },
 
-    showImportPreview(rows) {
+    showImportPreview(rows, rowsWithoutCode = 0) {
         const importStatus = document.getElementById('import-status');
         const importResult = document.getElementById('import-result');
         const importPreview = document.getElementById('import-preview');
@@ -2585,7 +2474,9 @@ const modalHtml = `
         Utils.removeClass(importStatus, 'hidden');
 
         importResult.className = 'import-result success';
-        importResult.textContent = `✅ ${rows.length} produtos encontrados no arquivo. Revise os dados abaixo:`;
+        importResult.textContent = rowsWithoutCode > 0
+            ? `✅ ${rows.length} produtos encontrados no arquivo. ${rowsWithoutCode} sem EAN/SKU reconhecido - um código será gerado automaticamente para eles. Revise os dados abaixo:`
+            : `✅ ${rows.length} produtos encontrados no arquivo. Revise os dados abaixo:`;
 
         previewBody.innerHTML = '';
         rows.slice(0, 10).forEach(row => {
@@ -2611,7 +2502,7 @@ const modalHtml = `
     confirmImport() {
         if (!this.state.pendingImport) return;
 
-        const products = this.state.pendingImport.map(row => this.normalizeImportedProduct(row));
+        const products = this.state.pendingImport.map((row, index) => this.normalizeImportedProduct(row, index));
         const savedProducts = Storage.saveProducts(products);
         Storage.saveProductCatalog(products);
 
@@ -2623,6 +2514,7 @@ const modalHtml = `
 
         document.getElementById('import-preview').classList.add('hidden');
         document.getElementById('current-products-count').textContent = `${savedProducts.length} produtos`;
+        this.renderCatalogTable();
 
         this.state.pendingImport = null;
 
@@ -2631,7 +2523,7 @@ const modalHtml = `
         }, 1000);
     },
 
-    normalizeImportedProduct(row = {}) {
+    normalizeImportedProduct(row = {}, index = 0) {
         const ean = Storage.normalizeCode(row.EAN);
         const sku = Storage.normalizeCode(row.SKU);
         const barcode = Storage.normalizeCode(row.Barcode);
@@ -2642,9 +2534,15 @@ const modalHtml = `
         const localizacao = Storage.normalizeCode(row.Localizacao || row.Localização || row.Local || row.Location);
         const estoque = Storage.normalizeStock(row.Estoque ?? row.Stock);
 
+        // Planilhas sem nenhuma coluna de código reconhecida ainda são
+        // importadas: gera um código sequencial só para o produto poder
+        // aparecer no catálogo (não vai casar com nenhum código de barras real).
+        const hasAnyCode = ean || sku || barcode || qrCode || codigo;
+        const generatedCode = hasAnyCode ? '' : `AUTO-${index + 1}`;
+
         return {
             EAN: ean,
-            SKU: sku,
+            SKU: sku || generatedCode,
             Barcode: barcode,
             QRCode: qrCode,
             Codigo: codigo,
@@ -2758,91 +2656,6 @@ const modalHtml = `
     },
 
     /**
-     * GOOGLE SHEETS INTEGRATION
-     */
-
-    async connectGoogleSheets(config) {
-        const gsheetUrl = config.gsheetUrl;
-        const clientId = config.clientId;
-        
-        try {
-            const response = await fetch(gsheetUrl);
-            if (!response.ok) {
-                throw new Error('Failed to fetch Google Sheet');
-            }
-            
-            const text = await response.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(text, 'text/html');
-            
-            Storage.saveGoogleSheetsConfig({
-                gsheetUrl,
-                clientId,
-                connected: true
-            });
-            
-            return { success: true };
-        } catch (error) {
-            console.error('Google Sheets connection error:', error);
-            return { success: false, error: error.message };
-        }
-    },
-
-    async syncGoogleSheets() {
-        const config = Storage.getGoogleSheetsConfig();
-        if (!config?.gsheetUrl) {
-            return { success: false, error: 'Not configured' };
-        }
-        
-        try {
-            const response = await fetch(config.gsheetUrl);
-            const text = await response.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(text, 'text/html');
-            
-            const sheets = doc.querySelectorAll('sheet');
-            if (sheets.length < 2) {
-                return { success: false, error: 'Invalid sheet structure' };
-            }
-            
-            const productCatalog = this.parseSheetData(sheets[0]);
-            const inventoryQuantities = this.parseSheetData(sheets[1]);
-            
-            Storage.saveProductCatalog(productCatalog);
-            Storage.saveInventoryQuantities(inventoryQuantities);
-            
-            Storage.saveGoogleSheetsConfig({ ...config, lastSync: new Date().toISOString() });
-            
-            return { 
-                success: true, 
-                products: productCatalog.length, 
-                quantities: inventoryQuantities.length 
-            };
-        } catch (error) {
-            console.error('Sync error:', error);
-            return { success: false, error: error.message };
-        }
-    },
-
-    parseSheetData(sheet) {
-        const rows = [];
-        const trs = sheet.querySelectorAll('tr');
-        const headers = [...trs[0].querySelectorAll('th, td')].map(th => th.textContent.trim());
-        
-        for (let i = 1; i < trs.length; i++) {
-            const cells = [...trs[i].querySelectorAll('td')];
-            const row = {};
-            headers.forEach((header, idx) => {
-                row[header] = cells[idx] ? cells[idx].textContent.trim() : '';
-            });
-            if (Object.values(row).some(v => v)) {
-                rows.push(row);
-            }
-        }
-        return rows;
-    },
-
-    /**
      * MANUAL INVOICE ENTRY
      */
 
@@ -2946,32 +2759,6 @@ const modalHtml = `
         
         alert(`${this.state.pendingMultipleXMLImports.length} notas fiscais importadas com sucesso!`);
         this.state.pendingMultipleXMLImports = null;
-    },
-
-    /**
-     * RECONCILIATION MODULE
-     */
-
-    updateReconciliationTab() {
-        const discrepancies = Storage.getReconciliationData();
-        const tbody = document.getElementById('reconciliation-body');
-        
-        if (tbody) {
-            tbody.innerHTML = '';
-            discrepancies.forEach(disc => {
-                const row = document.createElement('tr');
-                const diffColor = disc.type === 'shortage' ? 'diff-red' : 'diff-green';
-                row.innerHTML = `
-                    <td>${Storage.normalizeCode(disc.sku)}</td>
-                    <td>${disc.ean}</td>
-                    <td>${disc.scanned}</td>
-                    <td>${disc.expected}</td>
-                    <td class="${diffColor}"><strong>${disc.difference > 0 ? '+' : ''}${disc.difference}</strong></td>
-                    <td>${disc.type === 'shortage' ? '❌ Falta' : '✅ Sobra'}</td>
-                `;
-                tbody.appendChild(row);
-            });
-        }
     },
 
     /**

@@ -111,8 +111,7 @@ function showTestInfo() {
     console.log('Sessões:', Storage.getSessions());
     console.log('Colaboradores:', Storage.getCollaborators());
     console.log('Estatísticas:', Storage.getStatistics());
-    console.log('Divergências:', Storage.getDiscrepancies());
-    console.log('Não Inventariados:', Storage.getNotInventoriedProducts());
+    console.log('Divergências:', Storage.getUnifiedDivergences());
 }
 
 /**

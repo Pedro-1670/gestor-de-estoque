@@ -860,26 +860,36 @@ tbody tr:hover {
    SUPERVISOR NAVIGATION
    ============================================================================ */
 
-.supervisor-nav {
-    background: var(--color-white);
-    display: flex;
+.supervisor-layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
     gap: 0;
-    border-bottom: 1px solid var(--color-border);
-    padding: 0 var(--spacing-xl);
+    flex: 1;
     max-width: 100%;
-    overflow-x: auto;
+}
+
+.supervisor-sidebar {
+    background: var(--color-white);
+    padding: var(--spacing-lg) 0;
+    border-right: 1px solid var(--color-border);
+    overflow-y: auto;
+    max-height: calc(100vh - 80px);
+    display: flex;
+    flex-direction: column;
 }
 
 .nav-btn {
     flex: 0 0 auto;
-    padding: var(--spacing-lg) var(--spacing-xl);
+    width: 100%;
+    text-align: left;
+    padding: var(--spacing-md) var(--spacing-xl);
     border: none;
     background: transparent;
     color: var(--color-text-secondary);
     cursor: pointer;
     font-weight: 600;
     transition: var(--transition);
-    border-bottom: 3px solid transparent;
+    border-left: 3px solid transparent;
     font-size: 0.95rem;
 }
 
@@ -891,14 +901,15 @@ tbody tr:hover {
 .nav-btn--active,
 .nav-btn[aria-selected="true"] {
     color: var(--color-primary);
-    border-bottom-color: var(--color-primary);
+    background: var(--color-bg);
+    border-left-color: var(--color-primary);
 }
 
 /* ============================================================================
-   SUPERVISOR CONTAINER
+   SUPERVISOR MAIN
    ============================================================================ */
 
-.supervisor-container {
+.supervisor-main {
     flex: 1;
     overflow-y: auto;
     padding: var(--spacing-xl);
@@ -1376,14 +1387,36 @@ tbody tr:hover {
         font-size: 1.8rem;
     }
 
-    .supervisor-nav {
-        overflow-x: auto;
-        padding: 0 var(--spacing-lg);
+    .supervisor-layout {
+        grid-template-columns: 1fr;
     }
 
-    .nav-btn {
+    .supervisor-sidebar {
+        flex-direction: row;
+        overflow-x: auto;
+        max-height: none;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border);
+        padding: var(--spacing-sm) var(--spacing-lg);
+    }
+
+    .supervisor-main {
+        padding: var(--spacing-lg);
+    }
+
+    .supervisor-sidebar .nav-btn {
+        width: auto;
+        white-space: nowrap;
+        border-left: none;
+        border-bottom: 3px solid transparent;
         padding: var(--spacing-md) var(--spacing-lg);
         font-size: 0.85rem;
+    }
+
+    .supervisor-sidebar .nav-btn--active,
+    .supervisor-sidebar .nav-btn[aria-selected="true"] {
+        border-left-color: transparent;
+        border-bottom-color: var(--color-primary);
     }
 
     .filter-controls {
@@ -1476,12 +1509,12 @@ tbody tr:hover {
         width: 100%;
     }
 
-    .supervisor-nav {
-        padding: 0 var(--spacing-sm);
+    .supervisor-sidebar {
+        padding: var(--spacing-xs) var(--spacing-sm);
         gap: var(--spacing-xs);
     }
 
-    .nav-btn {
+    .supervisor-sidebar .nav-btn {
         padding: var(--spacing-sm) var(--spacing-md);
         font-size: 0.8rem;
     }

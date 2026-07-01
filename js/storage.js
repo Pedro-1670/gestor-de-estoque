@@ -638,6 +638,59 @@ const Storage = {
         localStorage.setItem(this.KEYS.SETTINGS, JSON.stringify(settings));
     },
 
+    // ========== Catálogo de Produtos ==========
+    getProductCatalog() {
+        const data = localStorage.getItem(this.KEYS.PRODUCT_CATALOG);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveProductCatalog(catalog) {
+        const normalized = Array.isArray(catalog) ? catalog : [];
+        localStorage.setItem(this.KEYS.PRODUCT_CATALOG, JSON.stringify(normalized));
+        this.catalogCache = null;
+        return normalized;
+    },
+
+    // ========== Quantidades Esperadas ==========
+    getInventoryQuantities() {
+        const data = localStorage.getItem(this.KEYS.INVENTORY_QUANTITIES);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveInventoryQuantities(quantities) {
+        const normalized = Array.isArray(quantities) ? quantities : [];
+        localStorage.setItem(this.KEYS.INVENTORY_QUANTITIES, JSON.stringify(normalized));
+        return normalized;
+    },
+
+    // ========== Notas Fiscais (XML e Manuais) ==========
+    getXMLInvoices() {
+        const data = localStorage.getItem(this.KEYS.XML_INVOICES);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveXMLInvoice(invoice) {
+        const invoices = this.getXMLInvoices();
+        invoices.push({
+            conferenceCode: invoice.conferenceCode || this.generateId(),
+            ...invoice
+        });
+        localStorage.setItem(this.KEYS.XML_INVOICES, JSON.stringify(invoices));
+        return invoices;
+    },
+
+    getManualInvoices() {
+        const data = localStorage.getItem(this.KEYS.MANUAL_INVOICES);
+        return data ? JSON.parse(data) : [];
+    },
+
+    saveManualInvoice(invoice) {
+        const invoices = this.getManualInvoices();
+        invoices.push(invoice);
+        localStorage.setItem(this.KEYS.MANUAL_INVOICES, JSON.stringify(invoices));
+        return invoices;
+    },
+
 generateId() {
         return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     },
@@ -657,56 +710,6 @@ generateId() {
     getNFCconferenceReports() {
         const data = localStorage.getItem(this.KEYS.NFC_CONFIRMATIONS);
         return data ? JSON.parse(data) : [];
-    },
-
-    // ========== Reconciliation ==========
-    getExpectedQuantity(productCode) {
-        const quantities = this.getInventoryQuantities();
-        const normalizedCode = this.normalizeCacheKey(productCode);
-        
-        for (const qty of quantities) {
-            if (this.normalizeCacheKey(qty.ean) === normalizedCode ||
-                this.normalizeCacheKey(qty.sku) === normalizedCode) {
-                return qty.expectedQuantity;
-            }
-        }
-        return 0;
-    },
-
-    getReconciliationData() {
-        const scans = this.getScans() || [];
-        const expectedQtys = this.getInventoryQuantities() || [];
-        const discrepancies = [];
-        
-        const scannedCounts = {};
-        scans.forEach(scan => {
-            const code = this.getScanPrimaryCode(scan);
-            if (code) {
-                scannedCounts[code] = (scannedCounts[code] || 0) + 1;
-            }
-        });
-        
-        expectedQtys.forEach(expected => {
-            const code = expected.ean || expected.sku;
-            if (!code) return;
-            
-            const scannedQty = scannedCounts[code] || 0;
-            const expectedQty = expected.expectedQuantity;
-            const difference = scannedQty - expectedQty;
-            
-            if (difference !== 0) {
-                discrepancies.push({
-                    ean: expected.ean,
-                    sku: expected.sku,
-                    scanned: scannedQty,
-                    expected: expectedQty,
-                    difference: difference,
-                    type: difference > 0 ? 'excess' : 'shortage'
-                });
-            }
-        });
-        
-        return discrepancies;
     },
 
     getStatistics() {
@@ -758,58 +761,66 @@ generateId() {
         };
     },
 
-    getDiscrepancies() {
+    /**
+     * Divergências unificadas: para cada produto, usa a quantidade esperada
+     * importada (planilha de Quantidades) quando existir, senão cai para o
+     * estoque de sistema do produto. Classifica em 'not-inventoried' (nunca
+     * bipado), 'excess' (sobra), 'shortage' (falta) ou 'ok'.
+     */
+    getUnifiedDivergences() {
         const scans = this.getScans() || [];
         const products = this.getProductsCached();
-        const scannedCounts = {};
+        const quantities = this.getInventoryQuantities() || [];
 
+        const expectedMap = new Map();
+        quantities.forEach(q => {
+            const eanKey = this.normalizeCacheKey(q.ean);
+            const skuKey = this.normalizeCacheKey(q.sku);
+            if (eanKey) expectedMap.set(eanKey, q.expectedQuantity);
+            if (skuKey) expectedMap.set(skuKey, q.expectedQuantity);
+        });
+
+        const scannedCounts = {};
         scans.forEach(scan => {
             const code = this.getScanPrimaryCode(scan);
-            if (!code) {
-                return;
+            if (code) {
+                scannedCounts[code] = (scannedCounts[code] || 0) + 1;
             }
-
-            if (!scannedCounts[code]) {
-                scannedCounts[code] = 0;
-            }
-            scannedCounts[code]++;
         });
 
         return products
             .map(product => {
                 const productCode = this.getProductPrimaryCode(product);
-
                 if (!productCode) {
                     return null;
                 }
 
                 const systemStock = this.normalizeStock(product.Estoque ?? product.Stock);
-                const countedStock = scannedCounts[productCode] || 0;
-                const difference = countedStock - systemStock;
+                const normalizedCode = this.normalizeCacheKey(productCode);
+                const expected = expectedMap.has(normalizedCode) ? expectedMap.get(normalizedCode) : systemStock;
+                const counted = scannedCounts[productCode] || 0;
+                const difference = counted - expected;
 
-                if (difference === 0) {
-                    return null;
+                let type = 'ok';
+                if (counted === 0) {
+                    type = 'not-inventoried';
+                } else if (difference > 0) {
+                    type = 'excess';
+                } else if (difference < 0) {
+                    type = 'shortage';
                 }
 
                 return {
                     sku: this.getField(product, 'SKU'),
+                    ean: productCode,
                     product: this.getProductDisplayName(product),
-                    systemStock,
-                    countedStock,
+                    expected,
+                    counted,
                     difference,
-                    type: difference > 0 ? 'excess' : 'shortage',
-                    ean: productCode
+                    type
                 };
             })
             .filter(Boolean);
-    },
-
-    getNotInventoriedProducts() {
-        const scans = this.getScans() || [];
-        const products = this.getProductsCached();
-        const scannedCodes = new Set(scans.map(scan => this.getScanPrimaryCode(scan)).filter(Boolean));
-
-        return products.filter(product => !scannedCodes.has(this.getProductPrimaryCode(product)));
     },
 
     exportToCSV(data, filename = 'inventario.csv') {
