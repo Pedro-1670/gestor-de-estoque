@@ -13,9 +13,6 @@ const DataService = {
     barcodeCache: null,
     isLoaded: false,
 
-    // Base de Estoque importada (Tarefa 1) - armazenamento independente do fluxo de merge acima
-    stockBase: [],
-
     KEYS: {
         INVENTORY_URL: 'inventory_gsheet_url',
         BARCODE_URL: 'barcode_gsheet_url'
@@ -69,6 +66,185 @@ const DataService = {
 
         const stock = Number(normalized);
         return Number.isFinite(stock) ? stock : 0;
+    },
+
+    // ========================================================================
+    // MOTOR DE DETECÇÃO DE CABEÇALHO (usado por TODOS os importadores: Excel
+    // e Google Sheets, catálogo, quantidades e base de estoque). Em vez de
+    // comparar o cabeçalho contra uma lista fixa de frases exatas, cada
+    // coluna é dividida em palavras normalizadas e classificada por PALAVRAS-
+    // CHAVE que aparecem nela. Isso reconhece variações que uma lista de
+    // apelidos nunca cobriria (ex: "Cadastro", "Qtd.Mult"), sem depender da
+    // posição da coluna nem de um cabeçalho exato pré-cadastrado.
+    // ========================================================================
+
+    FIELD_TOKENS: {
+        barcode: ['ean', 'gtin', 'barras', 'barcode', 'codbarras'],
+        unitQualifier: ['und', 'un', 'unidade', 'unitario', 'unitaria', 'unit'],
+        boxQualifier: ['caixa', 'cx', 'box', 'fardo', 'pacote', 'embalagem'],
+        productCode: ['codigo', 'cod', 'code', 'sku', 'cadastro', 'referencia', 'ref', 'id'],
+        productName: ['descricao', 'desc', 'produto', 'product', 'nome', 'name', 'description'],
+        quantity: ['qtd', 'qde', 'quantidade', 'quantity', 'estoque', 'saldo', 'mult', 'multiplicador', 'stock', 'qty'],
+        location: ['localizacao', 'local', 'endereco', 'rua', 'posicao', 'location', 'address', 'deposito'],
+        brand: ['marca', 'brand'],
+        group: ['grupo', 'group', 'categoria', 'category'],
+        subgroup: ['subgrupo', 'subgroup'],
+        store: ['loja', 'store', 'filial']
+    },
+
+    /**
+     * Quebra um cabeçalho em palavras normalizadas (sem acento, minúsculas,
+     * separadas por qualquer caractere não alfanumérico). Comparar por
+     * PALAVRA inteira evita falso-positivo de substring (ex: "id" não bate
+     * dentro de "unidade" porque são comparadas como tokens completos, não
+     * como texto colado).
+     */
+    normalizeHeaderWords(header) {
+        return String(header || '')
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .split(/[^a-z0-9]+/)
+            .filter(Boolean);
+    },
+
+    normalizeHeaderKey(header) {
+        return this.normalizeHeaderWords(header).join('');
+    },
+
+    /**
+     * Classifica um único cabeçalho de coluna no campo interno
+     * correspondente ('productCode', 'productName', 'unitBarcode',
+     * 'boxBarcode', 'barcode' genérico, 'quantity', 'location', 'brand',
+     * 'group', 'subgroup', 'store') ou null se não reconhecer nada.
+     */
+    classifyHeader(header) {
+        const words = this.normalizeHeaderWords(header);
+        if (words.length === 0) return null;
+
+        const has = (tokens) => tokens.some(token => words.includes(token));
+
+        const isBarcode = has(this.FIELD_TOKENS.barcode);
+        const isUnitQualified = has(this.FIELD_TOKENS.unitQualifier);
+        const isBoxQualified = has(this.FIELD_TOKENS.boxQualifier);
+
+        // Um código de barras só é "de unidade" ou "de caixa" quando o
+        // cabeçalho combina a palavra de código de barras com o
+        // qualificador (ex: "Cód. de Barras UND" / "Cód. de Barras Caixa").
+        if (isBarcode && isBoxQualified) return 'boxBarcode';
+        if (isBarcode && isUnitQualified) return 'unitBarcode';
+        if (isBarcode) return 'barcode';
+
+        if (has(this.FIELD_TOKENS.quantity)) return 'quantity';
+        if (has(this.FIELD_TOKENS.location)) return 'location';
+        if (has(this.FIELD_TOKENS.subgroup)) return 'subgroup';
+        if (has(this.FIELD_TOKENS.group)) return 'group';
+        if (has(this.FIELD_TOKENS.brand)) return 'brand';
+        if (has(this.FIELD_TOKENS.store)) return 'store';
+        if (has(this.FIELD_TOKENS.productCode)) return 'productCode';
+        if (has(this.FIELD_TOKENS.productName)) return 'productName';
+
+        return null;
+    },
+
+    /**
+     * Inspeciona o cabeçalho (chaves de uma linha) UMA VEZ e devolve o mapa
+     * campo-interno -> nome-da-coluna-original. Detecta a estrutura da
+     * planilha automaticamente; não depende da ordem das colunas.
+     */
+    detectHeaderMap(row) {
+        const map = {};
+        if (!row) return map;
+
+        Object.keys(row).forEach(key => {
+            const field = this.classifyHeader(key);
+            if (field && map[field] === undefined) {
+                map[field] = key;
+            }
+        });
+
+        return map;
+    },
+
+    rowHasProductCode(row) {
+        const map = this.detectHeaderMap(row);
+        return Boolean(map.productCode || map.unitBarcode || map.boxBarcode || map.barcode);
+    },
+
+    /**
+     * Converte uma linha crua (Excel ou Google Sheets) no modelo padrão de
+     * produto, usando o mapa de cabeçalho já detectado. Se nenhuma coluna de
+     * código/código de barras for encontrada, gera um código sequencial só
+     * para o produto não ficar de fora da importação (não vai casar com
+     * nenhum código de barras real).
+     */
+    buildStandardProduct(row, headerMap, index = 0) {
+        const get = (field) => {
+            const key = headerMap[field];
+            return key !== undefined ? this.normalizeValue(row[key]) : '';
+        };
+
+        const productCode = get('productCode');
+        const unitBarcode = get('unitBarcode');
+        const boxBarcode = get('boxBarcode');
+        const genericBarcode = get('barcode');
+
+        const hasAnyCode = productCode || unitBarcode || boxBarcode || genericBarcode;
+        const generatedCode = hasAnyCode ? '' : `AUTO-${index + 1}`;
+
+        return {
+            productCode: productCode || generatedCode,
+            description: get('productName'),
+            quantity: this.normalizeStock(get('quantity')),
+            unitBarcode,
+            boxBarcode,
+            ean: genericBarcode,
+            location: get('location'),
+            brand: get('brand'),
+            group: get('group'),
+            subgroup: get('subgroup'),
+            store: get('store')
+        };
+    },
+
+    /**
+     * Adapta o modelo padrão de produto para o shape que o restante da
+     * aplicação (Storage, telas do Operador/Supervisor, relatórios) já
+     * espera - assim só o motor de importação muda, nada mais precisa ser
+     * alterado.
+     */
+    toStorageProduct(standard) {
+        return {
+            SKU: standard.productCode,
+            EAN: standard.ean,
+            Codigo: standard.productCode,
+            Código: standard.productCode,
+            Produto: standard.description,
+            Nome: standard.description,
+            BarcodeUnd: standard.unitBarcode,
+            BarcodeBox: standard.boxBarcode,
+            Brand: standard.brand,
+            Group: standard.group,
+            Subgroup: standard.subgroup,
+            Localizacao: standard.location,
+            Localização: standard.location,
+            Store: standard.store,
+            Estoque: standard.quantity,
+            Stock: standard.quantity
+        };
+    },
+
+    /**
+     * Ponto de entrada único usado por TODOS os importadores (Excel e Google
+     * Sheets, catálogo e base de estoque). Detecta a estrutura da planilha
+     * pelo NOME das colunas (nunca pela posição) e devolve o produto já no
+     * shape usado pelo Storage.
+     */
+    mapProductRow(row, index = 0, headerMap = null) {
+        const map = headerMap || this.detectHeaderMap(row);
+        const standard = this.buildStandardProduct(row, map, index);
+        return this.toStorageProduct(standard);
     },
 
     getProductCode(item) {
@@ -148,19 +324,22 @@ const DataService = {
     },
 
     parseCSV(csvText) {
-        const lines = csvText.split('\n');
+        const lines = csvText.split('\n').filter(line => line.trim() !== '');
         if (lines.length < 2) return [];
 
-        const headers = this.parseCSVLine(lines[0]);
-        const rows = [];
+        const rawRows = lines.map(line => this.parseCSVLine(line));
+        const headerRowIndex = this.detectHeaderRowIndex(rawRows);
+        const headers = rawRows[headerRowIndex];
 
-        for (let i = 1; i < lines.length; i++) {
-            if (!lines[i].trim()) continue;
-            const values = this.parseCSVLine(lines[i]);
+        const rows = [];
+        for (let i = headerRowIndex + 1; i < rawRows.length; i++) {
+            const values = rawRows[i];
             const row = {};
 
             headers.forEach((header, idx) => {
-                row[header.trim()] = values[idx] || '';
+                const key = String(header || '').trim();
+                if (!key) return;
+                row[key] = values[idx] !== undefined ? values[idx] : '';
             });
 
             if (Object.values(row).some(v => v && String(v).trim())) {
@@ -169,6 +348,70 @@ const DataService = {
         }
 
         return rows;
+    },
+
+    /**
+     * Encontra, dentro das primeiras linhas de uma planilha (cada linha já
+     * como array de células), qual delas é de fato a linha de cabeçalho.
+     * Algumas planilhas têm um título/banner acima do cabeçalho de verdade
+     * (ex: uma célula mesclada "PLANILHA DE CONTAGEM" na linha 1) - por isso
+     * não dá pra simplesmente assumir que a primeira linha é o cabeçalho.
+     * Escolhe a linha, entre as 10 primeiras, cujas células mais reconhecem
+     * um campo conhecido (classifyHeader).
+     * @param {Array<Array<string>>} rawRows
+     * @returns {number} índice da linha de cabeçalho (0 se nada for reconhecido)
+     */
+    detectHeaderRowIndex(rawRows) {
+        const candidateLimit = Math.min(rawRows.length, 20);
+        let bestIndex = 0;
+        let bestScore = 0;
+        let bestRatio = 0;
+
+        for (let i = 0; i < candidateLimit; i++) {
+            const cells = (rawRows[i] || []).filter(cell => String(cell || '').trim() !== '');
+            if (cells.length === 0) continue;
+
+            const matched = cells.filter(cell => this.classifyHeader(cell) !== null).length;
+            // Exige pelo menos 2 campos reconhecidos na linha - evita que uma
+            // linha de DADO que por acaso contenha uma palavra parecida (ex:
+            // uma descrição de produto com a palavra "estoque") seja confundida
+            // com o cabeçalho de verdade.
+            if (matched < 2) continue;
+
+            const ratio = matched / cells.length;
+
+            if (matched > bestScore || (matched === bestScore && ratio > bestRatio)) {
+                bestScore = matched;
+                bestRatio = ratio;
+                bestIndex = i;
+            }
+        }
+
+        return bestIndex;
+    },
+
+    /**
+     * Descreve, em texto legível, o mapa de cabeçalho detectado - usado
+     * para mostrar ao usuário exatamente quais colunas foram reconhecidas
+     * (e quais não), em vez de deixar a importação como uma caixa-preta.
+     */
+    describeHeaderMap(headerMap) {
+        const labels = {
+            productCode: 'Código do Produto',
+            productName: 'Descrição',
+            quantity: 'Quantidade',
+            unitBarcode: 'Cód. de Barras (Unidade)',
+            boxBarcode: 'Cód. de Barras (Caixa)',
+            barcode: 'Cód. de Barras',
+            location: 'Localização',
+            brand: 'Marca',
+            group: 'Grupo',
+            subgroup: 'Subgrupo',
+            store: 'Loja'
+        };
+
+        const parts = Object.entries(headerMap || {}).map(([field, column]) => `"${column}"→${labels[field] || field}`);
+        return parts.length > 0 ? parts.join(', ') : 'nenhuma coluna reconhecida';
     },
 
     parseCSVLine(line) {
@@ -192,39 +435,6 @@ const DataService = {
         return result;
     },
 
-    /**
-     * Maps a raw CSV row from the Base de Estoque spreadsheet into the
-     * standard internal product shape used by the stock base import.
-     * Accepts common PT/EN header variations, since the ERP export
-     * may use different column names depending on the store.
-     * @param {Object} row - Raw row parsed from the CSV (keys = headers)
-     * @returns {Object} { codigo, descricao, marca, grupo, subGrupo, quantidade, loja }
-     */
-    mapStockBaseRow(row) {
-        return {
-            codigo: this.normalizeValue(row['Código do Produto'] || row['Codigo'] || row['Código'] || row['Code'] || ''),
-            descricao: this.normalizeValue(row['Descrição'] || row['Descricao'] || row['Produto'] || row['Description'] || ''),
-            marca: this.normalizeValue(row['Marca'] || row['Brand'] || ''),
-            grupo: this.normalizeValue(row['Grupo'] || row['Group'] || ''),
-            subGrupo: this.normalizeValue(row['Subgrupo'] || row['Sub Grupo'] || row['SubGrupo'] || row['Subgroup'] || ''),
-            quantidade: this.normalizeStock(row['Quantidade Atual'] || row['Quantidade'] || row['Qtde'] || row['Estoque'] || row['Stock'] || 0),
-            loja: this.normalizeValue(row['Loja'] || row['Store'] || '')
-        };
-    },
-
-    /**
-     * Importa a Base de Estoque (Planilha 1) a partir do Google Sheets.
-     * Lê a aba informada, usa a primeira linha como cabeçalho e converte
-     * as demais linhas em objetos JavaScript padronizados.
-     *
-     * Esta função NUNCA lança exceção: qualquer erro é retornado de forma
-     * estruturada para que a interface (em uma tarefa futura) possa exibi-lo
-     * sem travar a aplicação.
-     *
-     * @param {string} spreadsheetId - ID da planilha do Google Sheets
-     * @param {string} sheetName - Nome da aba a ser importada
-     * @returns {Promise<{success: boolean, message: string, count: number, products: Array}>}
-     */
     /**
      * Extrai o ID puro da planilha, aceitando tanto o ID em si quanto a
      * URL completa do Google Sheets (ex: colada direto da barra de endereço).
@@ -253,7 +463,7 @@ const DataService = {
     /**
      * Conector único de Google Sheets: busca a planilha (via endpoint
      * gviz/tq, somente leitura) e devolve as linhas cruas já parseadas
-     * (chave = cabeçalho da planilha). Reaproveitado por importStockBase,
+     * (chave = cabeçalho da planilha). Reaproveitado por
      * importProductCatalogFromSheet e importInventoryQuantitiesFromSheet -
      * nenhum deles lança exceção.
      *
@@ -319,41 +529,6 @@ const DataService = {
         }
     },
 
-    async importStockBase(spreadsheetId, sheetName) {
-        const result = await this._fetchSheetRows(spreadsheetId, sheetName);
-
-        if (!result.success) {
-            console.error(`DataService: ${result.message}`);
-            return { success: false, message: result.message, count: 0, products: [] };
-        }
-
-        const products = result.rows.map(row => this.mapStockBaseRow(row));
-
-        // Armazena em memória de forma isolada (não interfere no fluxo de cruzamento/merge já existente)
-        this.stockBase = products;
-
-        console.log(result.message);
-        console.log(`${products.length.toLocaleString('pt-BR')} produtos carregados.`);
-
-        return { success: true, message: result.message, count: products.length, products };
-    },
-
-    /**
-     * Mapeia uma linha crua da planilha de Catálogo para o shape usado por
-     * Storage.saveProductCatalog (aceita variações PT/EN de cabeçalho).
-     */
-    mapCatalogRow(row) {
-        return {
-            SKU: this.normalizeValue(row['SKU'] || row['Codigo'] || row['Código'] || ''),
-            EAN: this.normalizeValue(row['EAN'] || ''),
-            Produto: this.normalizeValue(row['Produto'] || row['Description'] || row['Descrição'] || row['Descricao'] || ''),
-            Brand: this.normalizeValue(row['Brand'] || row['Marca'] || ''),
-            Group: this.normalizeValue(row['Group'] || row['Grupo'] || ''),
-            Subgroup: this.normalizeValue(row['Subgroup'] || row['Subgrupo'] || ''),
-            Store: this.normalizeValue(row['Store'] || row['Loja'] || '')
-        };
-    },
-
     async importProductCatalogFromSheet(spreadsheetId, sheetName) {
         const result = await this._fetchSheetRows(spreadsheetId, sheetName);
 
@@ -362,19 +537,37 @@ const DataService = {
             return { success: false, message: result.message, count: 0, products: [] };
         }
 
-        const products = result.rows.map(row => this.mapCatalogRow(row));
-        return { success: true, message: result.message, count: products.length, products };
+        const headerMap = this.detectHeaderMap(result.rows[0]);
+        const products = result.rows.map((row, index) => this.mapProductRow(row, index, headerMap));
+        const autoGeneratedCount = products.filter(p => String(p.SKU).startsWith('AUTO-')).length;
+
+        return {
+            success: true,
+            message: result.message,
+            count: products.length,
+            products,
+            headerMap,
+            columnsDetected: this.describeHeaderMap(headerMap),
+            autoGeneratedCount
+        };
     },
 
     /**
      * Mapeia uma linha crua da planilha de Quantidades para o shape usado por
-     * Storage.saveInventoryQuantities.
+     * Storage.saveInventoryQuantities, usando o mesmo motor de detecção de
+     * cabeçalho por palavra-chave do catálogo (nunca por posição).
      */
-    mapQuantityRow(row) {
+    mapQuantityRow(row, headerMap = null) {
+        const map = headerMap || this.detectHeaderMap(row);
+        const get = (field) => {
+            const key = map[field];
+            return key !== undefined ? this.normalizeValue(row[key]) : '';
+        };
+
         return {
-            ean: this.normalizeValue(row['EAN'] || ''),
-            sku: this.normalizeValue(row['SKU'] || ''),
-            expectedQuantity: this.normalizeStock(row['ExpectedQuantity'] || row['Expected Quantity'] || row['Quantidade Esperada'] || row['Quantidade'] || 0)
+            ean: get('barcode') || get('unitBarcode') || get('boxBarcode'),
+            sku: get('productCode'),
+            expectedQuantity: this.normalizeStock(get('quantity'))
         };
     },
 
@@ -386,19 +579,12 @@ const DataService = {
             return { success: false, message: result.message, count: 0, quantities: [] };
         }
 
+        const headerMap = this.detectHeaderMap(result.rows[0]);
         const quantities = result.rows
-            .map(row => this.mapQuantityRow(row))
+            .map(row => this.mapQuantityRow(row, headerMap))
             .filter(q => q.ean || q.sku);
 
         return { success: true, message: result.message, count: quantities.length, quantities };
-    },
-
-    /**
-     * Retorna os produtos da Base de Estoque carregados em memória.
-     * @returns {Array}
-     */
-    getStockBase() {
-        return this.stockBase || [];
     },
 
     mergeDatabases() {

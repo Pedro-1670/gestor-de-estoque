@@ -244,11 +244,35 @@ const Utils = {
                     const workbook = XLSX.read(data, { type: 'array' });
                     const sheetName = workbook.SheetNames[0];
                     const sheet = workbook.Sheets[sheetName];
-                    const rows = XLSX.utils.sheet_to_json(sheet, {
+
+                    // Lê primeiro como matriz bruta (sem assumir que a linha 1
+                    // é o cabeçalho) para detectar onde o cabeçalho de fato
+                    // está - algumas planilhas têm um título/banner acima
+                    // dele (ex: célula mesclada com o nome da planilha).
+                    const rawRows = XLSX.utils.sheet_to_json(sheet, {
+                        header: 1,
                         raw: false,
                         defval: '',
                         blankrows: false
-                    }).map(row => this.normalizeExcelRow(row));
+                    });
+
+                    const headerRowIndex = window.DataService
+                        ? window.DataService.detectHeaderRowIndex(rawRows)
+                        : 0;
+                    const headers = (rawRows[headerRowIndex] || []).map(h => String(h || '').trim());
+
+                    const rows = [];
+                    for (let i = headerRowIndex + 1; i < rawRows.length; i++) {
+                        const values = rawRows[i];
+                        const row = {};
+                        headers.forEach((header, idx) => {
+                            if (!header) return;
+                            row[header] = values[idx] !== undefined ? values[idx] : '';
+                        });
+                        if (Object.values(row).some(v => v && String(v).trim())) {
+                            rows.push(this.normalizeExcelRow(row));
+                        }
+                    }
 
                     rows.forEach(row => {
                         if(row.EAN)

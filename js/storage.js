@@ -6,7 +6,6 @@
 const Storage = {
     KEYS: {
         PRODUCTS: 'inventory_products',
-        PRODUCT_CATALOG: 'inventory_product_catalog',
         INVENTORY_QUANTITIES: 'inventory_quantities',
         SCANS: 'inventory_scans',
         SESSIONS: 'inventory_sessions',
@@ -19,7 +18,9 @@ const Storage = {
         XML_INVOICES: 'inventory_xml_invoices',
         MANUAL_INVOICES: 'inventory_manual_invoices',
         GOOGLE_SHEETS_CONFIG: 'inventory_gsheets_config',
-        NFC_CONFIRMATIONS: 'inventory_nfc_confirmations'
+        NFC_CONFIRMATIONS: 'inventory_nfc_confirmations',
+        CATALOG_CONNECTION: 'inventory_catalog_connection',
+        INVENTORY_BASE_CONNECTION: 'inventory_base_connection'
     },
 
     USERS: {
@@ -39,7 +40,6 @@ const Storage = {
 
     productCodeCache: new Map(),
     productListCache: null,
-    catalogCache: null,
 
     init() {
         if (!this.getProducts()) {
@@ -186,27 +186,6 @@ const Storage = {
         return this.productListCache || [];
     },
 
-    getProductCatalogCached() {
-        if (this.catalogCache === null) {
-            this.buildCatalogCache();
-        }
-        return this.catalogCache || [];
-    },
-
-    buildCatalogCache() {
-        const catalog = this.getProductCatalog();
-        const codeMap = new Map();
-
-        catalog.forEach(product => {
-            this.getProductCodeFields(product).forEach(code => {
-                codeMap.set(this.normalizeCacheKey(code), product);
-            });
-        });
-
-        this.catalogCache = catalog;
-        return catalog;
-    },
-
     saveProducts(products) {
         const normalizedProducts = Array.isArray(products) ? products.map(product => this.normalizeProduct(product)).filter(Boolean) : [];
         localStorage.setItem(this.KEYS.PRODUCTS, JSON.stringify(normalizedProducts));
@@ -261,7 +240,6 @@ const Storage = {
     invalidateProductCache() {
         this.productCodeCache = new Map();
         this.productListCache = null;
-        this.catalogCache = null;
     },
 
     buildProductCache() {
@@ -315,8 +293,8 @@ const Storage = {
     normalizeProduct(product = {}) {
         const source = product || {};
         const normalized = { ...source };
-        const codeKeys = ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto', 'cProd'];
-        const textKeys = ['Produto', 'Nome', 'Categoria', 'Category', 'Localizacao', 'Localização', 'Local', 'Location', 'ClasseABC', 'ABC', 'ClassificacaoABC', 'ClassificaçãoABC'];
+        const codeKeys = ['EAN', 'SKU', 'BarcodeUnd', 'BarcodeBox', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto', 'cProd'];
+        const textKeys = ['Produto', 'Nome', 'Brand', 'Group', 'Subgroup', 'Categoria', 'Category', 'Localizacao', 'Localização', 'Local', 'Location', 'ClasseABC', 'ABC', 'ClassificacaoABC', 'ClassificaçãoABC'];
         const minStockKeys = ['EstoqueMinimo', 'EstoqueMínimo', 'EstoqueMin', 'Minimo', 'Mínimo', 'StockMin'];
 
         codeKeys.forEach(key => {
@@ -405,7 +383,7 @@ const Storage = {
     },
 
     getProductPrimaryCode(product) {
-        return this.getField(product, 'EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto', 'cProd');
+        return this.getField(product, 'EAN', 'SKU', 'BarcodeUnd', 'BarcodeBox', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto', 'cProd');
     },
 
     getProductStock(product) {
@@ -437,7 +415,7 @@ const Storage = {
     },
 
     getProductCodeFields(product) {
-        return ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto', 'cProd']
+        return ['EAN', 'SKU', 'BarcodeUnd', 'BarcodeBox', 'Barcode', 'QRCode', 'Codigo', 'Código', 'CodigoProduto', 'cProd']
             .map(key => this.normalizeCode(product?.[key]))
             .filter(Boolean);
     },
@@ -447,6 +425,8 @@ const Storage = {
             this.getProductDisplayName(product),
             this.normalizeCode(product?.SKU),
             this.normalizeCode(product?.EAN),
+            this.normalizeCode(product?.BarcodeUnd),
+            this.normalizeCode(product?.BarcodeBox),
             this.normalizeCode(product?.Barcode),
             this.normalizeCode(product?.Codigo),
             this.normalizeCode(product?.Código),
@@ -638,20 +618,28 @@ const Storage = {
         localStorage.setItem(this.KEYS.SETTINGS, JSON.stringify(settings));
     },
 
-    // ========== Catálogo de Produtos ==========
-    getProductCatalog() {
-        const data = localStorage.getItem(this.KEYS.PRODUCT_CATALOG);
-        return data ? JSON.parse(data) : [];
+    // ========== Conexão da Planilha do Catálogo ==========
+    getCatalogConnection() {
+        const data = localStorage.getItem(this.KEYS.CATALOG_CONNECTION);
+        if (!data) return null;
+
+        try {
+            return JSON.parse(data);
+        } catch (error) {
+            return null;
+        }
     },
 
-    saveProductCatalog(catalog) {
-        const normalized = Array.isArray(catalog) ? catalog : [];
-        localStorage.setItem(this.KEYS.PRODUCT_CATALOG, JSON.stringify(normalized));
-        this.catalogCache = null;
-        return normalized;
+    saveCatalogConnection(connection) {
+        localStorage.setItem(this.KEYS.CATALOG_CONNECTION, JSON.stringify(connection));
+        return connection;
     },
 
-    // ========== Quantidades Esperadas ==========
+    clearCatalogConnection() {
+        localStorage.removeItem(this.KEYS.CATALOG_CONNECTION);
+    },
+
+    // ========== Base de Estoque (quantidades esperadas) ==========
     getInventoryQuantities() {
         const data = localStorage.getItem(this.KEYS.INVENTORY_QUANTITIES);
         return data ? JSON.parse(data) : [];
@@ -661,6 +649,26 @@ const Storage = {
         const normalized = Array.isArray(quantities) ? quantities : [];
         localStorage.setItem(this.KEYS.INVENTORY_QUANTITIES, JSON.stringify(normalized));
         return normalized;
+    },
+
+    getInventoryBaseConnection() {
+        const data = localStorage.getItem(this.KEYS.INVENTORY_BASE_CONNECTION);
+        if (!data) return null;
+
+        try {
+            return JSON.parse(data);
+        } catch (error) {
+            return null;
+        }
+    },
+
+    saveInventoryBaseConnection(connection) {
+        localStorage.setItem(this.KEYS.INVENTORY_BASE_CONNECTION, JSON.stringify(connection));
+        return connection;
+    },
+
+    clearInventoryBaseConnection() {
+        localStorage.removeItem(this.KEYS.INVENTORY_BASE_CONNECTION);
     },
 
     // ========== Notas Fiscais (XML e Manuais) ==========

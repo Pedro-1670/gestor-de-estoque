@@ -17,6 +17,13 @@ const App = {
         sessionScans: [],
         sessionTimer: null,
         pendingImport: null,
+        pendingImportFileName: null,
+        catalogTableVisible: false,
+        catalogCurrentPage: 1,
+        catalogSearchTerm: '',
+        stockBaseTableVisible: false,
+        stockBaseCurrentPage: 1,
+        stockBaseSearchTerm: '',
         pendingXMLImport: null,
         pendingMultipleXMLImports: null,
         bipagemReportRows: [],
@@ -140,10 +147,30 @@ setupEventListeners() {
         document.getElementById('confirm-xml-import')?.addEventListener('click', () => this.confirmXMLImport());
         document.getElementById('cancel-xml-import')?.addEventListener('click', () => this.cancelXMLImport());
 
-        // Supervisor - Conector único de Google Sheets (Catálogo, Quantidades, Base de Estoque)
+        // Supervisor - Conector único de Google Sheets (Catálogo, Base de Estoque)
         document.querySelectorAll('[data-sheet-target]').forEach(btn => {
             btn.addEventListener('click', () => this.importFromGoogleSheet(btn.dataset.sheetTarget));
         });
+
+        // Supervisor - Conexão com a planilha do catálogo
+        document.getElementById('catalog-connect-btn')?.addEventListener('click', () => this.handleCatalogConnectClick());
+        document.getElementById('catalog-sync-btn')?.addEventListener('click', () => this.handleCatalogSyncClick());
+        document.getElementById('catalog-replace-btn')?.addEventListener('click', () => this.handleCatalogReplaceClick());
+        document.getElementById('catalog-disconnect-btn')?.addEventListener('click', () => this.handleCatalogDisconnectClick());
+        document.getElementById('catalog-view-toggle-btn')?.addEventListener('click', () => this.toggleCatalogView());
+        document.getElementById('catalog-prev-btn')?.addEventListener('click', () => this.catalogPrevPage());
+        document.getElementById('catalog-next-btn')?.addEventListener('click', () => this.catalogNextPage());
+        document.getElementById('catalog-search-input')?.addEventListener('input', (e) => this.handleCatalogSearchInput(e));
+
+        // Supervisor - Conexão com a planilha da Base de Estoque
+        document.getElementById('stockbase-connect-btn')?.addEventListener('click', () => this.handleStockBaseConnectClick());
+        document.getElementById('stockbase-sync-btn')?.addEventListener('click', () => this.handleStockBaseSyncClick());
+        document.getElementById('stockbase-replace-btn')?.addEventListener('click', () => this.handleStockBaseReplaceClick());
+        document.getElementById('stockbase-disconnect-btn')?.addEventListener('click', () => this.handleStockBaseDisconnectClick());
+        document.getElementById('stockbase-view-toggle-btn')?.addEventListener('click', () => this.toggleStockBaseView());
+        document.getElementById('stockbase-prev-btn')?.addEventListener('click', () => this.stockBasePrevPage());
+        document.getElementById('stockbase-next-btn')?.addEventListener('click', () => this.stockBaseNextPage());
+        document.getElementById('stockbase-search-input')?.addEventListener('input', (e) => this.handleStockBaseSearchInput(e));
 
         // Supervisor - Exportação
         document.querySelectorAll('[data-export-current]').forEach(btn => {
@@ -481,7 +508,7 @@ setupEventListeners() {
             return;
         }
 
-        const produto = Storage.getProduct(codigo);
+        const produto = CatalogService.getProductByBarcode(codigo);
         console.log("Produto encontrado:", produto);
 
         if (!produto) {
@@ -505,7 +532,7 @@ setupEventListeners() {
      */
     handleNFConferenceBarcodeScan(codigo) {
         const normalizedCode = Storage.normalizeCode(codigo);
-        const produto = Storage.getProduct(codigo);
+        const produto = CatalogService.getProductByBarcode(codigo);
 
         const nfItem = this.state.nfConferenceItems.find(item => {
             if (item.ean && item.ean === normalizedCode) return true;
@@ -764,7 +791,7 @@ const modalHtml = `
             return;
         }
 
-        Storage.getProducts()
+        CatalogService.getProducts()
             .filter(product => this.matchesProductSearch(product, term))
             .slice(0, 20)
             .forEach(product => {
@@ -780,6 +807,8 @@ const modalHtml = `
             Storage.getProductDisplayName(product),
             Storage.normalizeCode(product.SKU),
             Storage.normalizeCode(product.EAN),
+            Storage.normalizeCode(product.BarcodeUnd),
+            Storage.normalizeCode(product.BarcodeBox),
             Storage.normalizeCode(product.Barcode),
             Storage.normalizeCode(product.Codigo),
             Storage.normalizeCode(product.Código)
@@ -793,11 +822,13 @@ const modalHtml = `
             return null;
         }
 
-        const products = Storage.getProducts();
+        const products = CatalogService.getProducts();
         return products.find(product => [
             Storage.getProductDisplayName(product),
             Storage.normalizeCode(product.SKU),
             Storage.normalizeCode(product.EAN),
+            Storage.normalizeCode(product.BarcodeUnd),
+            Storage.normalizeCode(product.BarcodeBox),
             Storage.normalizeCode(product.Barcode),
             Storage.normalizeCode(product.Codigo),
             Storage.normalizeCode(product.Código)
@@ -806,31 +837,20 @@ const modalHtml = `
     },
 
     loadNFConference() {
-        const fornecedor = document.getElementById('nf-fornecedor-input').value.trim();
         const nfNumber = document.getElementById('nf-number-input').value.trim();
-        const conferenceCode = document.getElementById('nf-code-input').value.trim();
 
-        let conference = null;
-
-        const invoices = Storage.getXMLInvoices() || [];
-
-        if (conferenceCode) {
-            conference = invoices.find(inv => inv.conferenceCode === conferenceCode || inv.id === conferenceCode);
-        } else if (nfNumber && fornecedor) {
-            conference = invoices.find(inv => 
-                inv.nfInfo?.numeroNF === nfNumber && 
-                inv.nfInfo?.fornecedor?.toLowerCase().includes(fornecedor.toLowerCase())
-            );
-        } else if (nfNumber) {
-            conference = invoices.find(inv => inv.nfInfo?.numeroNF === nfNumber);
-        } else if (fornecedor) {
-            conference = invoices.find(inv => 
-                inv.nfInfo?.fornecedor?.toLowerCase().includes(fornecedor.toLowerCase())
-            );
+        if (!nfNumber) {
+            this.showProductError('Digite o número da nota.');
+            return;
         }
 
+        // O operador só precisa do número da nota - a conferência
+        // correspondente (fornecedor, itens, etc.) é localizada automaticamente.
+        const invoices = Storage.getXMLInvoices() || [];
+        const conference = invoices.find(inv => inv.nfInfo?.numeroNF === nfNumber);
+
         if (!conference || !conference.items || conference.items.length === 0) {
-            this.showProductError('Nota Fiscal não encontrada. Verifique os dados informados.');
+            this.showProductError('Nota Fiscal não encontrada. Verifique o número informado.');
             return;
         }
 
@@ -900,9 +920,7 @@ const modalHtml = `
         this.state.nfExcessCount = 0;
         this.state.nfDivergenceCount = 0;
 
-        document.getElementById('nf-fornecedor-input').value = '';
         document.getElementById('nf-number-input').value = '';
-        document.getElementById('nf-code-input').value = '';
 
         this.showNFControls(false);
         this.updateHistoryTable();
@@ -993,7 +1011,7 @@ const modalHtml = `
 
         productName.textContent = Storage.getProductDisplayName(product);
         productSKU.textContent = Storage.normalizeCode(product.SKU) || 'Não informado';
-        productEAN.textContent = Storage.normalizeCode(product.EAN) || Storage.normalizeCode(product.Barcode) || Storage.normalizeCode(product.Codigo) || Storage.normalizeCode(product.Código) || Storage.normalizeCode(product.SKU) || 'Não informado';
+        productEAN.textContent = Storage.normalizeCode(product.EAN) || Storage.normalizeCode(product.BarcodeUnd) || Storage.normalizeCode(product.BarcodeBox) || Storage.normalizeCode(product.Barcode) || Storage.normalizeCode(product.Codigo) || Storage.normalizeCode(product.Código) || Storage.normalizeCode(product.SKU) || 'Não informado';
         productStock.textContent = Storage.getProductStock(product);
         productMinStock.textContent = Storage.getProductMinStock(product);
         productCategory.textContent = Storage.getProductCategory(product);
@@ -1579,7 +1597,7 @@ const modalHtml = `
     },
 
     exportInventorySummary() {
-        const products = Storage.getProducts() || [];
+        const products = CatalogService.getProducts() || [];
         const scans = Storage.getScans() || [];
         const stats = Storage.getStatistics();
 
@@ -1908,19 +1926,109 @@ const modalHtml = `
     },
 
     updateDataImportTab() {
-        const products = Storage.getProducts() || [];
+        const products = CatalogService.getProducts() || [];
 
         const currentCountEl = document.getElementById('current-products-count');
         if (currentCountEl) currentCountEl.textContent = `${products.length} produtos no sistema`;
 
-        const stockBaseCountEl = document.getElementById('stock-base-count');
-        if (stockBaseCountEl) {
-            const stockBaseCount = (DataService.getStockBase() || []).length;
-            stockBaseCountEl.textContent = `${stockBaseCount.toLocaleString('pt-BR')} produtos na Base de Estoque`;
+        this.renderCatalogTable();
+        this.renderStockBaseTable();
+        this.updateCatalogConnectionUI();
+        this.updateStockBaseConnectionUI();
+    },
+
+    /**
+     * CONEXÃO COM A PLANILHA DO CATÁLOGO
+     *
+     * Guarda metadados (origem, nome, contagem, última sincronização) sobre
+     * qual planilha alimenta o catálogo de produtos, para o supervisor
+     * conseguir sincronizar/substituir/desconectar sem precisar lembrar
+     * onde os dados vieram. CatalogService garante que só existe uma fonte
+     * ativa por vez - desconectar remove a conexão E o catálogo importado.
+     */
+    updateCatalogConnectionUI() {
+        const connection = CatalogService.getConnection();
+        const disconnectedEl = document.getElementById('catalog-connection-disconnected');
+        const connectedEl = document.getElementById('catalog-connection-connected');
+        const controlsEl = document.getElementById('catalog-import-controls');
+
+        if (!connection) {
+            Utils.show(disconnectedEl);
+            Utils.hide(connectedEl);
+            Utils.hide(controlsEl);
+            return;
         }
 
+        Utils.hide(disconnectedEl);
+        Utils.show(connectedEl);
+        Utils.hide(controlsEl);
+
+        document.getElementById('catalog-conn-name').textContent = connection.name || '-';
+        document.getElementById('catalog-conn-source').textContent = connection.source === 'google-sheets' ? 'Google Sheets' : 'Excel (XLSX)';
+        document.getElementById('catalog-conn-count').textContent = `${(connection.productCount || 0).toLocaleString('pt-BR')} produtos`;
+        document.getElementById('catalog-conn-lastsync').textContent = connection.lastSyncAt
+            ? new Date(connection.lastSyncAt).toLocaleString('pt-BR')
+            : '-';
+
+        const statusEl = document.getElementById('catalog-conn-status');
+        if (connection.status === 'error') {
+            statusEl.textContent = '⚠️ Erro na última sincronização';
+            statusEl.style.color = 'var(--color-danger)';
+        } else {
+            statusEl.textContent = '✅ Conectado';
+            statusEl.style.color = 'var(--color-success)';
+        }
+    },
+
+    showCatalogImportControls() {
+        Utils.show(document.getElementById('catalog-import-controls'));
+    },
+
+    handleCatalogConnectClick() {
+        this.showCatalogImportControls();
+    },
+
+    handleCatalogReplaceClick() {
+        // Limpa os campos pra não confundir com a planilha anterior.
+        document.getElementById('sheet-catalog-id').value = '';
+        document.getElementById('sheet-catalog-name').value = '';
+        document.getElementById('excel-file-input').value = '';
+        this.showCatalogImportControls();
+    },
+
+    handleCatalogSyncClick() {
+        const connection = CatalogService.getConnection();
+        if (!connection) return;
+
+        if (connection.source === 'xlsx') {
+            // Não é possível reler um arquivo local sem interação do usuário
+            // (o navegador não guarda acesso ao arquivo entre sessões) -
+            // pede pra selecionar o mesmo arquivo de novo.
+            alert('Esta planilha foi importada de um arquivo Excel local. Selecione o arquivo novamente para sincronizar.');
+            this.showCatalogImportControls();
+            document.getElementById('excel-file-input').click();
+            return;
+        }
+
+        // Google Sheets: reaproveita o mesmo conector já existente, só
+        // preenchendo os campos com os dados salvos da conexão.
+        document.getElementById('sheet-catalog-id').value = connection.spreadsheetId || '';
+        document.getElementById('sheet-catalog-name').value = connection.sheetName || '';
+        this.importFromGoogleSheet('catalog');
+    },
+
+    handleCatalogDisconnectClick() {
+        if (!confirm('Desconectar esta planilha? O catálogo de produtos importado por ela também será apagado.')) {
+            return;
+        }
+
+        CatalogService.clearCatalog();
+        this.state.catalogTableVisible = false;
+        this.updateCatalogConnectionUI();
         this.renderCatalogTable();
-        this.renderQuantitiesTable();
+
+        const currentCountEl = document.getElementById('current-products-count');
+        if (currentCountEl) currentCountEl.textContent = `${CatalogService.getProducts().length} produtos no sistema`;
     },
 
     updateReportsTab() {
@@ -1943,16 +2051,27 @@ const modalHtml = `
         this.updateCollaboratorReportSummary();
     },
 
+    /**
+     * Renderiza a tabela do catálogo, paginada (100 produtos por página) e
+     * com filtro de busca opcional - nunca joga o catálogo inteiro (pode
+     * passar de 5000 produtos) no DOM de uma vez. A tabela só é montada
+     * quando visível (ver toggleCatalogView) - antes disso só a contagem no
+     * resumo é atualizada.
+     */
     renderCatalogTable() {
-        const products = Storage.getProductCatalog() || [];
-        const tbody = document.getElementById('catalog-body');
         const countEl = document.getElementById('catalog-count');
+        if (countEl) countEl.textContent = `${CatalogService.getProducts().length} produtos`;
 
-        if (countEl) countEl.textContent = `${products.length} produtos`;
+        if (!this.state.catalogTableVisible) return;
+
+        const { items, totalPages, page } = CatalogService.getCatalogPage(this.state.catalogCurrentPage, this.state.catalogSearchTerm);
+        this.state.catalogCurrentPage = page;
+
+        const tbody = document.getElementById('catalog-body');
         if (!tbody) return;
 
         tbody.innerHTML = '';
-        products.slice(0, 50).forEach(product => {
+        items.forEach(product => {
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${Storage.normalizeCode(product.SKU || product.sku)}</td>
@@ -1962,18 +2081,154 @@ const modalHtml = `
             `;
             tbody.appendChild(row);
         });
+
+        const pageInfo = document.getElementById('catalog-page-info');
+        if (pageInfo) pageInfo.textContent = `Página ${page} de ${totalPages}`;
+
+        const prevBtn = document.getElementById('catalog-prev-btn');
+        if (prevBtn) prevBtn.disabled = page <= 1;
+
+        const nextBtn = document.getElementById('catalog-next-btn');
+        if (nextBtn) nextBtn.disabled = page >= totalPages;
     },
 
-    renderQuantitiesTable() {
-        const quantities = Storage.getInventoryQuantities() || [];
-        const tbody = document.getElementById('qty-body');
-        const countEl = document.getElementById('qty-count');
+    toggleCatalogView() {
+        this.state.catalogTableVisible = !this.state.catalogTableVisible;
 
-        if (countEl) countEl.textContent = `${quantities.length} itens`;
+        const section = document.getElementById('catalog-table-section');
+        const btn = document.getElementById('catalog-view-toggle-btn');
+
+        if (this.state.catalogTableVisible) {
+            Utils.show(section);
+            if (btn) btn.textContent = '🙈 Ocultar Catálogo';
+            this.state.catalogCurrentPage = 1;
+            this.renderCatalogTable();
+        } else {
+            Utils.hide(section);
+            if (btn) btn.textContent = '👁️ Ver Catálogo';
+        }
+    },
+
+    catalogPrevPage() {
+        if (this.state.catalogCurrentPage <= 1) return;
+        this.state.catalogCurrentPage -= 1;
+        this.renderCatalogTable();
+    },
+
+    catalogNextPage() {
+        this.state.catalogCurrentPage += 1;
+        this.renderCatalogTable();
+    },
+
+    handleCatalogSearchInput(event) {
+        this.state.catalogSearchTerm = event.target.value;
+        this.state.catalogCurrentPage = 1;
+        this.renderCatalogTable();
+    },
+
+    /**
+     * CONEXÃO COM A PLANILHA DA BASE DE ESTOQUE
+     *
+     * Serviço completamente independente do Catálogo de Produtos - guarda só
+     * a quantidade esperada por SKU/EAN. Mesma UI/comportamento do card do
+     * Catálogo (Sincronizar/Substituir/Desconectar), mas nunca lê nem escreve
+     * nada do InventoryBaseService.
+     */
+    updateStockBaseConnectionUI() {
+        const connection = InventoryBaseService.getConnection();
+        const disconnectedEl = document.getElementById('stockbase-connection-disconnected');
+        const connectedEl = document.getElementById('stockbase-connection-connected');
+        const controlsEl = document.getElementById('stockbase-import-controls');
+
+        if (!connection) {
+            Utils.show(disconnectedEl);
+            Utils.hide(connectedEl);
+            Utils.hide(controlsEl);
+            return;
+        }
+
+        Utils.hide(disconnectedEl);
+        Utils.show(connectedEl);
+        Utils.hide(controlsEl);
+
+        document.getElementById('stockbase-conn-name').textContent = connection.name || '-';
+        document.getElementById('stockbase-conn-source').textContent = connection.source === 'google-sheets' ? 'Google Sheets' : 'Excel (XLSX)';
+        document.getElementById('stockbase-conn-count').textContent = `${(connection.recordCount || 0).toLocaleString('pt-BR')} registros`;
+        document.getElementById('stockbase-conn-lastsync').textContent = connection.lastSyncAt
+            ? new Date(connection.lastSyncAt).toLocaleString('pt-BR')
+            : '-';
+
+        const statusEl = document.getElementById('stockbase-conn-status');
+        if (connection.status === 'error') {
+            statusEl.textContent = '⚠️ Erro na última sincronização';
+            statusEl.style.color = 'var(--color-danger)';
+        } else {
+            statusEl.textContent = '✅ Conectado';
+            statusEl.style.color = 'var(--color-success)';
+        }
+    },
+
+    showStockBaseImportControls() {
+        Utils.show(document.getElementById('stockbase-import-controls'));
+    },
+
+    handleStockBaseConnectClick() {
+        this.showStockBaseImportControls();
+    },
+
+    handleStockBaseReplaceClick() {
+        document.getElementById('sheet-quantities-id').value = '';
+        document.getElementById('sheet-quantities-name').value = '';
+        document.getElementById('inventory-qty-file-input').value = '';
+        this.showStockBaseImportControls();
+    },
+
+    handleStockBaseSyncClick() {
+        const connection = InventoryBaseService.getConnection();
+        if (!connection) return;
+
+        if (connection.source === 'xlsx') {
+            alert('Esta planilha foi importada de um arquivo Excel local. Selecione o arquivo novamente para sincronizar.');
+            this.showStockBaseImportControls();
+            document.getElementById('inventory-qty-file-input').click();
+            return;
+        }
+
+        document.getElementById('sheet-quantities-id').value = connection.spreadsheetId || '';
+        document.getElementById('sheet-quantities-name').value = connection.sheetName || '';
+        this.importFromGoogleSheet('quantities');
+    },
+
+    handleStockBaseDisconnectClick() {
+        if (!confirm('Desconectar esta planilha? Os registros da Base de Estoque importados por ela também serão apagados. O Catálogo de Produtos não é afetado.')) {
+            return;
+        }
+
+        InventoryBaseService.clearBase();
+        this.state.stockBaseTableVisible = false;
+        this.updateStockBaseConnectionUI();
+        this.renderStockBaseTable();
+    },
+
+    /**
+     * Renderiza a Base de Estoque, paginada (100 registros por página) e com
+     * busca opcional - só monta a tabela quando visível (ver
+     * toggleStockBaseView); antes disso só a contagem no resumo é atualizada.
+     */
+    renderStockBaseTable() {
+        const countEl = document.getElementById('qty-count');
+        if (countEl) countEl.textContent = `${InventoryBaseService.getRecords().length} itens`;
+
+        if (!this.state.stockBaseTableVisible) return;
+
+        const { items, totalPages, page } = InventoryBaseService.getRecordsPage(this.state.stockBaseCurrentPage, this.state.stockBaseSearchTerm);
+        this.state.stockBaseCurrentPage = page;
+
+        const tbody = document.getElementById('qty-body');
         if (!tbody) return;
 
         tbody.innerHTML = '';
-        quantities.forEach(qty => {
+        items.forEach(qty => {
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${Storage.normalizeCode(qty.sku)}</td>
@@ -1982,6 +2237,49 @@ const modalHtml = `
             `;
             tbody.appendChild(row);
         });
+
+        const pageInfo = document.getElementById('stockbase-page-info');
+        if (pageInfo) pageInfo.textContent = `Página ${page} de ${totalPages}`;
+
+        const prevBtn = document.getElementById('stockbase-prev-btn');
+        if (prevBtn) prevBtn.disabled = page <= 1;
+
+        const nextBtn = document.getElementById('stockbase-next-btn');
+        if (nextBtn) nextBtn.disabled = page >= totalPages;
+    },
+
+    toggleStockBaseView() {
+        this.state.stockBaseTableVisible = !this.state.stockBaseTableVisible;
+
+        const section = document.getElementById('stockbase-table-section');
+        const btn = document.getElementById('stockbase-view-toggle-btn');
+
+        if (this.state.stockBaseTableVisible) {
+            Utils.show(section);
+            if (btn) btn.textContent = '🙈 Ocultar Registros';
+            this.state.stockBaseCurrentPage = 1;
+            this.renderStockBaseTable();
+        } else {
+            Utils.hide(section);
+            if (btn) btn.textContent = '👁️ Ver Registros';
+        }
+    },
+
+    stockBasePrevPage() {
+        if (this.state.stockBaseCurrentPage <= 1) return;
+        this.state.stockBaseCurrentPage -= 1;
+        this.renderStockBaseTable();
+    },
+
+    stockBaseNextPage() {
+        this.state.stockBaseCurrentPage += 1;
+        this.renderStockBaseTable();
+    },
+
+    handleStockBaseSearchInput(event) {
+        this.state.stockBaseSearchTerm = event.target.value;
+        this.state.stockBaseCurrentPage = 1;
+        this.renderStockBaseTable();
     },
 
     updateManualInvoiceTab() {
@@ -2033,28 +2331,54 @@ const modalHtml = `
             let resultado;
 
             if (target === 'catalog') {
-                resultado = await DataService.importProductCatalogFromSheet(spreadsheetId, sheetName);
+                // CatalogService garante fonte única: qualquer catálogo
+                // anterior (Excel ou outra planilha) é substituído por completo.
+                resultado = await CatalogService.loadFromGoogleSheets(spreadsheetId, sheetName);
                 if (resultado.success) {
-                    Storage.saveProductCatalog(resultado.products);
                     this.renderCatalogTable();
+                    const currentCountEl = document.getElementById('current-products-count');
+                    if (currentCountEl) currentCountEl.textContent = `${CatalogService.getProducts().length} produtos no sistema`;
+                    this.updateCatalogConnectionUI();
+                } else {
+                    // Mantém os metadados da conexão existente, só marca que a
+                    // última sincronização falhou (não desconecta sozinho).
+                    const existingConnection = CatalogService.getConnection();
+                    if (existingConnection && existingConnection.source === 'google-sheets') {
+                        Storage.saveCatalogConnection({ ...existingConnection, status: 'error', lastSyncAt: new Date().toISOString() });
+                        this.updateCatalogConnectionUI();
+                    }
                 }
             } else if (target === 'quantities') {
-                resultado = await DataService.importInventoryQuantitiesFromSheet(spreadsheetId, sheetName);
+                // InventoryBaseService garante fonte única: qualquer base
+                // anterior (Excel ou outra planilha) é substituída por
+                // completo. Serviço independente do CatalogService.
+                resultado = await InventoryBaseService.loadFromGoogleSheets(spreadsheetId, sheetName);
                 if (resultado.success) {
-                    Storage.saveInventoryQuantities(resultado.quantities);
-                    this.renderQuantitiesTable();
-                }
-            } else {
-                resultado = await DataService.importStockBase(spreadsheetId, sheetName);
-                if (resultado.success) {
-                    const countEl = document.getElementById('stock-base-count');
-                    if (countEl) countEl.textContent = `${DataService.getStockBase().length.toLocaleString('pt-BR')} produtos na Base de Estoque`;
+                    this.renderStockBaseTable();
+                    this.updateStockBaseConnectionUI();
+                } else {
+                    const existingConnection = InventoryBaseService.getConnection();
+                    if (existingConnection && existingConnection.source === 'google-sheets') {
+                        Storage.saveInventoryBaseConnection({ ...existingConnection, status: 'error', lastSyncAt: new Date().toISOString() });
+                        this.updateStockBaseConnectionUI();
+                    }
                 }
             }
 
             if (resultado.success) {
                 resultEl.className = 'import-result success';
-                resultEl.textContent = `✅ ${resultado.message} ${resultado.count.toLocaleString('pt-BR')} itens carregados.`;
+                let message = `✅ ${resultado.message} ${resultado.count.toLocaleString('pt-BR')} itens carregados.`;
+
+                // Diagnóstico: mostra exatamente quais colunas foram reconhecidas,
+                // para não ficar adivinhando quando algo sair diferente do esperado.
+                if (resultado.columnsDetected) {
+                    message += ` Colunas detectadas: ${resultado.columnsDetected}.`;
+                }
+                if (resultado.autoGeneratedCount > 0) {
+                    message += ` ⚠️ ${resultado.autoGeneratedCount} item(ns) sem código reconhecido na planilha (usando código gerado automaticamente) - confira se o cabeçalho da planilha foi identificado corretamente.`;
+                }
+
+                resultEl.textContent = message;
             } else {
                 resultEl.className = 'import-result error';
                 resultEl.textContent = `❌ ${resultado.message}`;
@@ -2078,7 +2402,7 @@ const modalHtml = `
         
         if (!ean || qty < 1) return;
         
-        const product = Storage.getProduct(ean);
+        const product = CatalogService.getProductByBarcode(ean);
         const item = {
             ean,
             sku: product ? Storage.normalizeCode(product.SKU) : '',
@@ -2388,7 +2712,7 @@ const modalHtml = `
                 fornecedorName: nfInfo.fornecedor
             };
 
-            if (Storage.getProduct(item.codigoProduto) || Storage.getProduct(item.ean)) {
+            if (CatalogService.getProductByBarcode(item.codigoProduto) || CatalogService.getProductByBarcode(item.ean)) {
                 Storage.updateProduct(product);
                 productsUpdated++;
             } else {
@@ -2424,40 +2748,47 @@ const modalHtml = `
 
         const file = files[0];
 
-        try {
-            const rows = await Utils.parseExcelFile(file);
-            console.log('Importação Excel iniciada:', file.name, 'Tamanho:', file.size, 'Linhas:', rows.length);
+        if (importType === 'quantities') {
+            try {
+                // InventoryBaseService garante fonte única: qualquer base
+                // anterior (Google Sheets ou outro arquivo Excel) é
+                // substituída por completo. Nunca afeta o Catálogo de Produtos.
+                const result = await InventoryBaseService.loadFromExcelFile(file);
 
-            if (!rows || rows.length === 0) {
-                alert('Arquivo Excel vazio ou inválido.');
-                return;
-            }
+                if (!result.success) {
+                    alert(result.message);
+                    return;
+                }
 
-            if (importType === 'quantities') {
-                const quantities = rows.map(row => ({
-                    ean: Storage.normalizeCode(row.EAN || row.ean || row.SKU || row.sku),
-                    sku: Storage.normalizeCode(row.SKU || row.sku),
-                    expectedQuantity: Number(Storage.normalizeStock(row.ExpectedQuantity ?? row.expectedQuantity ?? row.Estoque ?? row.Stock))
-                })).filter(q => q.ean);
-
-                Storage.saveInventoryQuantities(quantities);
                 document.getElementById('inventory-qty-file-input').value = '';
-                alert(`${quantities.length} quantidades de estoque importadas com sucesso!`);
-                this.renderQuantitiesTable();
+                alert(`${result.count} registros da Base de Estoque importados com sucesso!`);
+                this.renderStockBaseTable();
+                this.updateStockBaseConnectionUI();
+            } catch (error) {
+                console.error('Erro ao importar:', error);
+                alert('Erro ao importar arquivo: ' + error.message);
+            }
+            return;
+        }
+
+        try {
+            // ExcelImporter só converte o arquivo no modelo padrão de produto -
+            // não grava nada; o "commit" no catálogo só acontece depois que o
+            // supervisor revisar a prévia e clicar em "Confirmar Importação".
+            const result = await ExcelImporter.import(file);
+
+            if (!result.success) {
+                alert(result.message);
                 return;
             }
 
-            // Não bloqueia a importação por causa da estrutura da planilha: os
-            // cabeçalhos já passam por reconhecimento flexível (Utils.normalizeExcelHeader)
-            // e, na falta de qualquer código identificável, uma linha ainda assim é
-            // importada com um código gerado automaticamente (ver normalizeImportedProduct).
-            const rowsWithoutCode = rows.filter(row => !this.hasImportCode(row)).length;
-            if (rowsWithoutCode > 0) {
-                console.warn('Linhas importadas sem código identificável (código será gerado automaticamente):', rowsWithoutCode);
+            if (result.rowsWithoutCode > 0) {
+                console.warn('Linhas importadas sem código identificável (código será gerado automaticamente):', result.rowsWithoutCode);
             }
 
-            this.state.pendingImport = rows;
-            this.showImportPreview(rows, rowsWithoutCode);
+            this.state.pendingImport = result.products;
+            this.state.pendingImportFileName = file.name;
+            this.showImportPreview(result);
 
         } catch (error) {
             console.error('Erro ao importar:', error);
@@ -2465,7 +2796,8 @@ const modalHtml = `
         }
     },
 
-    showImportPreview(rows, rowsWithoutCode = 0) {
+    showImportPreview(result) {
+        const { products, rowsWithoutCode, columnsDetected } = result;
         const importStatus = document.getElementById('import-status');
         const importResult = document.getElementById('import-result');
         const importPreview = document.getElementById('import-preview');
@@ -2474,25 +2806,26 @@ const modalHtml = `
         Utils.removeClass(importStatus, 'hidden');
 
         importResult.className = 'import-result success';
-        importResult.textContent = rowsWithoutCode > 0
-            ? `✅ ${rows.length} produtos encontrados no arquivo. ${rowsWithoutCode} sem EAN/SKU reconhecido - um código será gerado automaticamente para eles. Revise os dados abaixo:`
-            : `✅ ${rows.length} produtos encontrados no arquivo. Revise os dados abaixo:`;
+        importResult.textContent = (rowsWithoutCode > 0
+            ? `✅ ${products.length} produtos encontrados no arquivo. ${rowsWithoutCode} sem EAN/SKU reconhecido - um código será gerado automaticamente para eles. Revise os dados abaixo:`
+            : `✅ ${products.length} produtos encontrados no arquivo. Revise os dados abaixo:`)
+            + ` Colunas detectadas: ${columnsDetected}.`;
 
         previewBody.innerHTML = '';
-        rows.slice(0, 10).forEach(row => {
+        products.slice(0, 10).forEach(product => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td>${Storage.normalizeCode(row.EAN) || Storage.normalizeCode(row.Codigo) || Storage.normalizeCode(row.Código) || '-'}</td>
-                <td>${Storage.normalizeCode(row.SKU) || Storage.normalizeCode(row.Codigo) || Storage.normalizeCode(row.Código) || '-'}</td>
-                <td>${Storage.normalizeCode(row.Produto) || Storage.normalizeCode(row.Nome) || '-'}</td>
-                <td>${Storage.normalizeCode(row.Estoque) || Storage.normalizeCode(row.Stock) || 0}</td>
+                <td>${Storage.normalizeCode(product.EAN) || Storage.normalizeCode(product.BarcodeUnd) || Storage.normalizeCode(product.BarcodeBox) || '-'}</td>
+                <td>${Storage.normalizeCode(product.SKU) || '-'}</td>
+                <td>${Storage.normalizeCode(product.Produto) || '-'}</td>
+                <td>${Storage.normalizeCode(product.Estoque) || 0}</td>
             `;
             previewBody.appendChild(tr);
         });
 
-        if (rows.length > 10) {
+        if (products.length > 10) {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td colspan="4" style="text-align: center; font-style: italic;">... e mais ${rows.length - 10} produtos</td>`;
+            tr.innerHTML = `<td colspan="4" style="text-align: center; font-style: italic;">... e mais ${products.length - 10} produtos</td>`;
             previewBody.appendChild(tr);
         }
 
@@ -2502,9 +2835,9 @@ const modalHtml = `
     confirmImport() {
         if (!this.state.pendingImport) return;
 
-        const products = this.state.pendingImport.map((row, index) => this.normalizeImportedProduct(row, index));
-        const savedProducts = Storage.saveProducts(products);
-        Storage.saveProductCatalog(products);
+        // CatalogService garante fonte única: qualquer catálogo anterior
+        // (Google Sheets ou outro arquivo Excel) é substituído por completo.
+        const savedProducts = CatalogService.loadFromExcel(this.state.pendingImport, this.state.pendingImportFileName);
 
         console.log("Produtos carregados:", savedProducts.length);
         console.table(savedProducts);
@@ -2513,54 +2846,16 @@ const modalHtml = `
         document.getElementById('import-result').textContent = `✅ Importação confirmada! ${savedProducts.length} produtos carregados com sucesso.`;
 
         document.getElementById('import-preview').classList.add('hidden');
-        document.getElementById('current-products-count').textContent = `${savedProducts.length} produtos`;
+        document.getElementById('current-products-count').textContent = `${savedProducts.length} produtos no sistema`;
         this.renderCatalogTable();
+        this.updateCatalogConnectionUI();
 
         this.state.pendingImport = null;
+        this.state.pendingImportFileName = null;
 
         setTimeout(() => {
             document.getElementById('excel-file-input').value = '';
         }, 1000);
-    },
-
-    normalizeImportedProduct(row = {}, index = 0) {
-        const ean = Storage.normalizeCode(row.EAN);
-        const sku = Storage.normalizeCode(row.SKU);
-        const barcode = Storage.normalizeCode(row.Barcode);
-        const qrCode = Storage.normalizeCode(row.QRCode);
-        const codigo = Storage.normalizeCode(row.Codigo || row.Código);
-        const produto = Storage.normalizeCode(row.Produto || row.Nome);
-        const categoria = Storage.normalizeCode(row.Categoria || row.Category);
-        const localizacao = Storage.normalizeCode(row.Localizacao || row.Localização || row.Local || row.Location);
-        const estoque = Storage.normalizeStock(row.Estoque ?? row.Stock);
-
-        // Planilhas sem nenhuma coluna de código reconhecida ainda são
-        // importadas: gera um código sequencial só para o produto poder
-        // aparecer no catálogo (não vai casar com nenhum código de barras real).
-        const hasAnyCode = ean || sku || barcode || qrCode || codigo;
-        const generatedCode = hasAnyCode ? '' : `AUTO-${index + 1}`;
-
-        return {
-            EAN: ean,
-            SKU: sku || generatedCode,
-            Barcode: barcode,
-            QRCode: qrCode,
-            Codigo: codigo,
-            Código: codigo,
-            Produto: produto,
-            Nome: produto,
-            Estoque: estoque,
-            Stock: estoque,
-            Categoria: categoria,
-            Category: categoria,
-            Localizacao: localizacao,
-            Localização: localizacao
-        };
-    },
-
-    hasImportCode(row = {}) {
-        return ['EAN', 'SKU', 'Barcode', 'QRCode', 'Codigo', 'Código']
-            .some(key => Storage.normalizeCode(row?.[key]));
     },
 
     cancelImport() {
@@ -2568,6 +2863,7 @@ const modalHtml = `
         document.getElementById('import-preview').classList.add('hidden');
         document.getElementById('excel-file-input').value = '';
         this.state.pendingImport = null;
+        this.state.pendingImportFileName = null;
     },
 
     /**
@@ -2575,7 +2871,7 @@ const modalHtml = `
      */
 
     exportToExcel() {
-        const products = Storage.getProducts() || [];
+        const products = CatalogService.getProducts() || [];
 
         if (products.length === 0) {
             alert('Nenhum produto para exportar.');

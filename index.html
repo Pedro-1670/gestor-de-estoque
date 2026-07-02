@@ -135,31 +135,12 @@
                             </header>
                             <div class="nf-conference-form">
                                 <div class="form-group">
-                                    <label for="nf-fornecedor-input">Fornecedor:</label>
-                                    <input
-                                        type="text"
-                                        id="nf-fornecedor-input"
-                                        class="form-input"
-                                        placeholder="Digite o nome do fornecedor..."
-                                    >
-                                </div>
-                                <div class="form-group">
-                                    <label for="nf-number-input">Número da NF:</label>
+                                    <label for="nf-number-input">Número da Nota:</label>
                                     <input
                                         type="text"
                                         id="nf-number-input"
                                         class="form-input"
-                                        placeholder="Digite o número da NF..."
-                                    >
-                                </div>
-                                <div class="nf-or-divider">ou</div>
-                                <div class="form-group">
-                                    <label for="nf-code-input">Código da Conferência:</label>
-                                    <input
-                                        type="text"
-                                        id="nf-code-input"
-                                        class="form-input"
-                                        placeholder="Código gerado pelo supervisor..."
+                                        placeholder="Digite o número da nota..."
                                     >
                                 </div>
                                 <button id="load-nf-btn" class="btn btn--success btn--large" style="width: 100%;">
@@ -500,7 +481,7 @@
                 <section id="tab-data-import" class="tab-content" aria-label="Dados e Importação">
                     <section class="import-section">
                         <h2>🗂️ Dados / Importação</h2>
-                        <p class="section-info">Catálogo de produtos, quantidades esperadas e base de estoque, via arquivo Excel ou Google Sheets. O conector de Google Sheets abaixo é o mesmo nas três seções — só muda o destino dos dados.</p>
+                        <p class="section-info">Duas fontes de dados independentes: o Catálogo de Produtos (identificação na bipagem) e a Base de Estoque (quantidade esperada antes do inventário) - cada uma com sua própria conexão, nunca compartilhando ou sobrescrevendo dados uma da outra.</p>
                     </section>
 
                     <!-- Sub: Catálogo de Produtos -->
@@ -508,166 +489,260 @@
                         <h3>📋 Catálogo de Produtos</h3>
                         <p class="section-info">Colunas: Store, SKU, Description, Brand, Group, Subgroup, Unit, EAN.</p>
 
-                        <div class="import-area">
-                            <input
-                                type="file"
-                                id="excel-file-input"
-                                accept=".xlsx,.xls"
-                                class="file-input"
-                                aria-label="Selecione arquivo Excel para importar o catálogo"
-                            >
-                            <label for="excel-file-input" class="file-label">
-                                <div class="file-icon">📄</div>
-                                <p><strong>Importar Catálogo (Excel)</strong></p>
-                                <span>Suporta .xlsx e .xls</span>
-                            </label>
-                        </div>
+                        <!-- Conexão com a Planilha -->
+                        <section class="nf-conference-details" style="margin-bottom: 20px; max-width: 560px;" aria-label="Conexão com a planilha do catálogo">
+                            <div id="catalog-connection-disconnected">
+                                <p class="section-info">Nenhuma planilha conectada.</p>
+                                <button id="catalog-connect-btn" class="btn btn--primary btn--small" aria-label="Conectar planilha do catálogo">
+                                    🔗 Conectar Planilha
+                                </button>
+                            </div>
 
-                        <div id="import-status" class="hidden" aria-live="polite" aria-label="Status da importação do catálogo">
-                            <div id="import-result" class="import-result"></div>
-                            <div id="import-preview" class="import-preview hidden">
-                                <h4>📊 Prévia dos Produtos Importados</h4>
-                                <div class="table-responsive">
-                                    <table id="import-preview-table" class="preview-table">
-                                        <caption>Prévia dos dados a serem importados</caption>
-                                        <thead>
-                                            <tr>
-                                                <th>EAN</th>
-                                                <th>SKU</th>
-                                                <th>Produto</th>
-                                                <th>Estoque</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="import-preview-body">
-                                        </tbody>
-                                    </table>
+                            <div id="catalog-connection-connected" class="hidden">
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Planilha conectada:</span>
+                                    <span id="catalog-conn-name" class="nf-detail-value">-</span>
                                 </div>
-                                <div class="import-actions">
-                                    <button id="confirm-import" class="btn btn--success btn--large" aria-label="Confirmar importação do catálogo">
-                                        ✓ Confirmar Importação
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Origem:</span>
+                                    <span id="catalog-conn-source" class="nf-detail-value">-</span>
+                                </div>
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Produtos importados:</span>
+                                    <span id="catalog-conn-count" class="nf-detail-value">0</span>
+                                </div>
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Última sincronização:</span>
+                                    <span id="catalog-conn-lastsync" class="nf-detail-value">-</span>
+                                </div>
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Status:</span>
+                                    <span id="catalog-conn-status" class="nf-detail-value">-</span>
+                                </div>
+                                <div class="section-controls" style="margin-top: 15px;">
+                                    <button id="catalog-sync-btn" class="btn btn--success btn--small" aria-label="Sincronizar planilha agora">
+                                        🔄 Sincronizar Agora
                                     </button>
-                                    <button id="cancel-import" class="btn btn--secondary btn--large" aria-label="Cancelar importação">
-                                        ✗ Cancelar
+                                    <button id="catalog-replace-btn" class="btn btn--secondary btn--small" aria-label="Substituir planilha conectada">
+                                        🔁 Substituir Planilha
+                                    </button>
+                                    <button id="catalog-view-toggle-btn" class="btn btn--secondary btn--small" aria-label="Mostrar ou ocultar a tabela do catálogo">
+                                        👁️ Ver Catálogo
+                                    </button>
+                                    <button id="catalog-disconnect-btn" class="btn btn--secondary btn--small" aria-label="Desconectar planilha">
+                                        ✕ Desconectar Planilha
                                     </button>
                                 </div>
                             </div>
-                        </div>
+                        </section>
 
-                        <div class="form-grid" style="margin-top: 20px;">
-                            <div class="form-group">
-                                <label for="sheet-catalog-id">ID da Planilha (Google Sheets)</label>
-                                <input type="text" id="sheet-catalog-id" class="form-input" placeholder="ID ou URL completa da planilha">
+                        <div id="catalog-import-controls" class="hidden">
+                            <div class="import-area">
+                                <input
+                                    type="file"
+                                    id="excel-file-input"
+                                    accept=".xlsx,.xls"
+                                    class="file-input"
+                                    aria-label="Selecione arquivo Excel para importar o catálogo"
+                                >
+                                <label for="excel-file-input" class="file-label">
+                                    <div class="file-icon">📄</div>
+                                    <p><strong>Importar Catálogo (Excel)</strong></p>
+                                    <span>Suporta .xlsx e .xls</span>
+                                </label>
                             </div>
-                            <div class="form-group">
-                                <label for="sheet-catalog-name">Nome da Aba (opcional)</label>
-                                <input type="text" id="sheet-catalog-name" class="form-input" placeholder="Ex: Catalogo">
+
+                            <div id="import-status" class="hidden" aria-live="polite" aria-label="Status da importação do catálogo">
+                                <div id="import-result" class="import-result"></div>
+                                <div id="import-preview" class="import-preview hidden">
+                                    <h4>📊 Prévia dos Produtos Importados</h4>
+                                    <div class="table-responsive">
+                                        <table id="import-preview-table" class="preview-table">
+                                            <caption>Prévia dos dados a serem importados</caption>
+                                            <thead>
+                                                <tr>
+                                                    <th>EAN</th>
+                                                    <th>SKU</th>
+                                                    <th>Produto</th>
+                                                    <th>Estoque</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="import-preview-body">
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="import-actions">
+                                        <button id="confirm-import" class="btn btn--success btn--large" aria-label="Confirmar importação do catálogo">
+                                            ✓ Confirmar Importação
+                                        </button>
+                                        <button id="cancel-import" class="btn btn--secondary btn--large" aria-label="Cancelar importação">
+                                            ✗ Cancelar
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <button class="btn btn--primary btn--small" data-sheet-target="catalog" aria-label="Importar catálogo do Google Sheets">
-                            🔗 Importar do Google Sheets
-                        </button>
-                        <div id="sheet-catalog-status" class="hidden" aria-live="polite" style="margin-top: 10px;">
-                            <div id="sheet-catalog-result" class="import-result"></div>
+
+                            <div class="form-grid" style="margin-top: 20px;">
+                                <div class="form-group">
+                                    <label for="sheet-catalog-id">ID da Planilha (Google Sheets)</label>
+                                    <input type="text" id="sheet-catalog-id" class="form-input" placeholder="ID ou URL completa da planilha">
+                                </div>
+                                <div class="form-group">
+                                    <label for="sheet-catalog-name">Nome da Aba (opcional)</label>
+                                    <input type="text" id="sheet-catalog-name" class="form-input" placeholder="Ex: Catalogo">
+                                </div>
+                            </div>
+                            <button class="btn btn--primary btn--small" data-sheet-target="catalog" aria-label="Importar catálogo do Google Sheets">
+                                🔗 Importar do Google Sheets
+                            </button>
+                            <div id="sheet-catalog-status" class="hidden" aria-live="polite" style="margin-top: 10px;">
+                                <div id="sheet-catalog-result" class="import-result"></div>
+                            </div>
                         </div>
 
                         <section class="current-products" style="margin-top: 20px;">
                             <h4>Produtos no Catálogo</h4>
                             <p id="catalog-count" class="section-info">0 produtos</p>
-                            <div class="table-responsive">
-                                <table id="catalog-table" class="preview-table">
-                                    <thead>
-                                        <tr>
-                                            <th>SKU</th>
-                                            <th>EAN</th>
-                                            <th>Produto</th>
-                                            <th>Marca</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="catalog-body"></tbody>
-                                </table>
+
+                            <div id="catalog-table-section" class="hidden">
+                                <div class="form-group" style="max-width: 400px;">
+                                    <input type="text" id="catalog-search-input" class="form-input" placeholder="Buscar por SKU, EAN, nome...">
+                                </div>
+                                <div class="table-responsive">
+                                    <table id="catalog-table" class="preview-table">
+                                        <thead>
+                                            <tr>
+                                                <th>SKU</th>
+                                                <th>EAN</th>
+                                                <th>Produto</th>
+                                                <th>Marca</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="catalog-body"></tbody>
+                                    </table>
+                                </div>
+                                <div class="section-controls" style="margin-top: 10px; align-items: center;">
+                                    <button id="catalog-prev-btn" class="btn btn--secondary btn--small" aria-label="Página anterior do catálogo">← Anterior</button>
+                                    <span id="catalog-page-info" class="section-info" style="margin: 0 10px;">Página 1 de 1</span>
+                                    <button id="catalog-next-btn" class="btn btn--secondary btn--small" aria-label="Próxima página do catálogo">Próxima →</button>
+                                </div>
                             </div>
                         </section>
                     </section>
 
-                    <!-- Sub: Quantidades Esperadas -->
+                    <!-- Sub: Base de Estoque (quantidades esperadas) -->
                     <section class="import-section">
-                        <h3>📊 Quantidades Esperadas</h3>
-                        <p class="section-info">Colunas: SKU ou EAN, Expected Quantity.</p>
+                        <h3>🗄️ Base de Estoque</h3>
+                        <p class="section-info">Quantidade esperada de estoque antes do inventário. Colunas: SKU (ou EAN), Quantidade Esperada.</p>
 
-                        <div class="import-area">
-                            <input
-                                type="file"
-                                id="inventory-qty-file-input"
-                                accept=".xlsx,.xls,.csv"
-                                class="file-input"
-                                aria-label="Selecione arquivo para importar quantidades esperadas"
-                            >
-                            <label for="inventory-qty-file-input" class="file-label">
-                                <div class="file-icon">📄</div>
-                                <p><strong>Importar Quantidades (Excel)</strong></p>
-                                <span>Colunas: SKU ou EAN, Expected Quantity</span>
-                            </label>
-                        </div>
+                        <!-- Conexão com a Planilha -->
+                        <section class="nf-conference-details" style="margin-bottom: 20px; max-width: 560px;" aria-label="Conexão com a planilha da Base de Estoque">
+                            <div id="stockbase-connection-disconnected">
+                                <p class="section-info">Nenhuma planilha conectada.</p>
+                                <button id="stockbase-connect-btn" class="btn btn--primary btn--small" aria-label="Conectar planilha da Base de Estoque">
+                                    🔗 Conectar Planilha
+                                </button>
+                            </div>
 
-                        <div class="form-grid" style="margin-top: 20px;">
-                            <div class="form-group">
-                                <label for="sheet-quantities-id">ID da Planilha (Google Sheets)</label>
-                                <input type="text" id="sheet-quantities-id" class="form-input" placeholder="ID ou URL completa da planilha">
+                            <div id="stockbase-connection-connected" class="hidden">
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Planilha conectada:</span>
+                                    <span id="stockbase-conn-name" class="nf-detail-value">-</span>
+                                </div>
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Origem:</span>
+                                    <span id="stockbase-conn-source" class="nf-detail-value">-</span>
+                                </div>
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Registros importados:</span>
+                                    <span id="stockbase-conn-count" class="nf-detail-value">0</span>
+                                </div>
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Última sincronização:</span>
+                                    <span id="stockbase-conn-lastsync" class="nf-detail-value">-</span>
+                                </div>
+                                <div class="nf-detail-row">
+                                    <span class="nf-detail-label">Status:</span>
+                                    <span id="stockbase-conn-status" class="nf-detail-value">-</span>
+                                </div>
+                                <div class="section-controls" style="margin-top: 15px;">
+                                    <button id="stockbase-sync-btn" class="btn btn--success btn--small" aria-label="Sincronizar planilha agora">
+                                        🔄 Sincronizar Agora
+                                    </button>
+                                    <button id="stockbase-replace-btn" class="btn btn--secondary btn--small" aria-label="Substituir planilha conectada">
+                                        🔁 Substituir Planilha
+                                    </button>
+                                    <button id="stockbase-view-toggle-btn" class="btn btn--secondary btn--small" aria-label="Mostrar ou ocultar os registros da Base de Estoque">
+                                        👁️ Ver Registros
+                                    </button>
+                                    <button id="stockbase-disconnect-btn" class="btn btn--secondary btn--small" aria-label="Desconectar planilha">
+                                        ✕ Desconectar Planilha
+                                    </button>
+                                </div>
                             </div>
-                            <div class="form-group">
-                                <label for="sheet-quantities-name">Nome da Aba (opcional)</label>
-                                <input type="text" id="sheet-quantities-name" class="form-input" placeholder="Ex: Quantidades">
+                        </section>
+
+                        <div id="stockbase-import-controls" class="hidden">
+                            <div class="import-area">
+                                <input
+                                    type="file"
+                                    id="inventory-qty-file-input"
+                                    accept=".xlsx,.xls,.csv"
+                                    class="file-input"
+                                    aria-label="Selecione arquivo para importar a Base de Estoque"
+                                >
+                                <label for="inventory-qty-file-input" class="file-label">
+                                    <div class="file-icon">📄</div>
+                                    <p><strong>Importar Base de Estoque (Excel)</strong></p>
+                                    <span>Colunas: SKU ou EAN, Quantidade Esperada</span>
+                                </label>
                             </div>
-                        </div>
-                        <button class="btn btn--primary btn--small" data-sheet-target="quantities" aria-label="Importar quantidades do Google Sheets">
-                            🔗 Importar do Google Sheets
-                        </button>
-                        <div id="sheet-quantities-status" class="hidden" aria-live="polite" style="margin-top: 10px;">
-                            <div id="sheet-quantities-result" class="import-result"></div>
+
+                            <div class="form-grid" style="margin-top: 20px;">
+                                <div class="form-group">
+                                    <label for="sheet-quantities-id">ID da Planilha (Google Sheets)</label>
+                                    <input type="text" id="sheet-quantities-id" class="form-input" placeholder="ID ou URL completa da planilha">
+                                </div>
+                                <div class="form-group">
+                                    <label for="sheet-quantities-name">Nome da Aba (opcional)</label>
+                                    <input type="text" id="sheet-quantities-name" class="form-input" placeholder="Ex: Estoque">
+                                </div>
+                            </div>
+                            <button class="btn btn--primary btn--small" data-sheet-target="quantities" aria-label="Importar Base de Estoque do Google Sheets">
+                                🔗 Importar do Google Sheets
+                            </button>
+                            <div id="sheet-quantities-status" class="hidden" aria-live="polite" style="margin-top: 10px;">
+                                <div id="sheet-quantities-result" class="import-result"></div>
+                            </div>
                         </div>
 
                         <section class="current-products" style="margin-top: 20px;">
-                            <h4>Quantidades Carregadas</h4>
+                            <h4>Registros na Base de Estoque</h4>
                             <p id="qty-count" class="section-info">0 itens</p>
-                            <div class="table-responsive">
-                                <table id="qty-table" class="preview-table">
-                                    <thead>
-                                        <tr>
-                                            <th>SKU</th>
-                                            <th>EAN</th>
-                                            <th>Quantidade Esperada</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="qty-body"></tbody>
-                                </table>
+
+                            <div id="stockbase-table-section" class="hidden">
+                                <div class="form-group" style="max-width: 400px;">
+                                    <input type="text" id="stockbase-search-input" class="form-input" placeholder="Buscar por SKU ou EAN...">
+                                </div>
+                                <div class="table-responsive">
+                                    <table id="qty-table" class="preview-table">
+                                        <thead>
+                                            <tr>
+                                                <th>SKU</th>
+                                                <th>EAN</th>
+                                                <th>Quantidade Esperada</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="qty-body"></tbody>
+                                    </table>
+                                </div>
+                                <div class="section-controls" style="margin-top: 10px; align-items: center;">
+                                    <button id="stockbase-prev-btn" class="btn btn--secondary btn--small" aria-label="Página anterior da Base de Estoque">← Anterior</button>
+                                    <span id="stockbase-page-info" class="section-info" style="margin: 0 10px;">Página 1 de 1</span>
+                                    <button id="stockbase-next-btn" class="btn btn--secondary btn--small" aria-label="Próxima página da Base de Estoque">Próxima →</button>
+                                </div>
                             </div>
                         </section>
-                    </section>
-
-                    <!-- Sub: Base de Estoque -->
-                    <section class="import-section">
-                        <h3>🗄️ Base de Estoque</h3>
-                        <p class="section-info">Base de Estoque oficial, importada diretamente de uma planilha do Google Sheets.</p>
-
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label for="sheet-stockbase-id">ID da Planilha</label>
-                                <input type="text" id="sheet-stockbase-id" class="form-input" placeholder="ID ou URL completa da planilha">
-                            </div>
-                            <div class="form-group">
-                                <label for="sheet-stockbase-name">Nome da Aba (opcional)</label>
-                                <input type="text" id="sheet-stockbase-name" class="form-input" placeholder="Ex: Estoque">
-                            </div>
-                        </div>
-                        <button class="btn btn--primary btn--small" data-sheet-target="stockbase" aria-label="Importar Base de Estoque do Google Sheets">
-                            🔗 Importar do Google Sheets
-                        </button>
-
-                        <div id="sheet-stockbase-status" class="hidden" aria-live="polite" style="margin-top: 10px;">
-                            <div id="sheet-stockbase-result" class="import-result"></div>
-                        </div>
-
-                        <p id="stock-base-count" class="section-info" aria-live="polite" style="margin-top: 10px;">0 produtos na Base de Estoque</p>
                     </section>
 
                     <section class="current-products">
@@ -896,6 +971,8 @@
     <script src="js/storage.js" defer></script>
     <script src="js/utils.js" defer></script>
     <script src="js/data-service.js" defer></script>
+    <script src="js/catalog-service.js" defer></script>
+    <script src="js/inventory-base-service.js" defer></script>
     <script src="js/app.js" defer></script>
     <script src="js/test-data.js" defer></script>
 </body>
