@@ -436,15 +436,34 @@ const Storage = {
         ].join(' ').toLowerCase();
     },
 
+    /**
+     * Identidade do produto: SKU é sempre a comparação principal (barcodes são
+     * só identificadores, nunca a chave de comparação). Só cai para comparar
+     * por qualquer código compartilhado quando um dos dois lados não tem SKU
+     * (ex: item de XML/nota manual ainda sem SKU reconhecido).
+     */
     productSharesCode(firstProduct, secondProduct) {
+        const firstSku = this.normalizeCacheKey(firstProduct?.SKU);
+        const secondSku = this.normalizeCacheKey(secondProduct?.SKU);
+
+        if (firstSku && secondSku) {
+            return firstSku === secondSku;
+        }
+
         const firstCodes = new Set(this.getProductCodeFields(firstProduct));
         const secondCodes = new Set(this.getProductCodeFields(secondProduct));
 
         return [...secondCodes].some(code => firstCodes.has(code));
     },
 
+    /**
+     * Identidade da bipagem: SKU é sempre a comparação principal - duas
+     * bipagens do mesmo produto devem contar como o mesmo item mesmo que uma
+     * tenha sido feita pelo código de barras de unidade e outra pelo de caixa.
+     * Só cai para ean/barcode quando a bipagem não tem SKU registrado.
+     */
     getScanPrimaryCode(scan = {}) {
-        return this.getField(scan, 'ean', 'sku', 'barcode', 'code', 'codigo', 'CodigoProduto', 'QRCode', 'Codigo', 'Código');
+        return this.getField(scan, 'sku', 'ean', 'barcode', 'code', 'codigo', 'CodigoProduto', 'QRCode', 'Codigo', 'Código');
     },
 
     getScans() {
@@ -798,7 +817,10 @@ generateId() {
 
         return products
             .map(product => {
-                const productCode = this.getProductPrimaryCode(product);
+                // Mesma prioridade de identidade usada em getScanPrimaryCode
+                // (SKU primeiro) - senão uma bipagem pelo código de caixa
+                // nunca bateria com um produto identificado aqui pelo EAN.
+                const productCode = this.normalizeCode(product.SKU) || this.getProductPrimaryCode(product);
                 if (!productCode) {
                     return null;
                 }

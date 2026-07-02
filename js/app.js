@@ -795,9 +795,13 @@ const modalHtml = `
             .filter(product => this.matchesProductSearch(product, term))
             .slice(0, 20)
             .forEach(product => {
+                const sku = Storage.normalizeCode(product.SKU) || '-';
+                const und = Storage.normalizeCode(product.BarcodeUnd) || '-';
+                const cx = Storage.normalizeCode(product.BarcodeBox) || '-';
+
                 const option = document.createElement('option');
                 option.value = Storage.getProductDisplayName(product);
-                option.label = `${Storage.normalizeCode(product.SKU) || Storage.getProductPrimaryCode(product)} | ${Storage.normalizeCode(product.EAN) || Storage.getProductPrimaryCode(product)}`;
+                option.label = `SKU: ${sku} | UND: ${und} | CX: ${cx}`;
                 datalist.appendChild(option);
             });
     },
@@ -1016,7 +1020,10 @@ const modalHtml = `
         productMinStock.textContent = Storage.getProductMinStock(product);
         productCategory.textContent = Storage.getProductCategory(product);
 
-        const productCode = Storage.getProductPrimaryCode(product);
+        // Mesma prioridade de identidade usada em getScanPrimaryCode (SKU
+        // primeiro) - senão uma bipagem pelo código de caixa não seria
+        // contada junto com uma bipagem anterior pelo código de unidade.
+        const productCode = Storage.normalizeCode(product.SKU) || Storage.getProductPrimaryCode(product);
         const count = productCode
             ? this.state.sessionScans.filter(s => Storage.getScanPrimaryCode(s) === productCode).length
             : 0;
@@ -2403,8 +2410,12 @@ const modalHtml = `
         if (!ean || qty < 1) return;
         
         const product = CatalogService.getProductByBarcode(ean);
+        // A nota manual sempre registra o EAN de Unidade do produto resolvido -
+        // nunca o EAN de Caixa, mesmo que o operador tenha digitado/bipado o
+        // código de caixa (que só serve para localizar o produto, não para
+        // identificar o item na nota).
         const item = {
-            ean,
+            ean: product ? (Storage.normalizeCode(product.BarcodeUnd) || ean) : ean,
             sku: product ? Storage.normalizeCode(product.SKU) : '',
             description: product ? Storage.getProductDisplayName(product) : '',
             quantity: qty
